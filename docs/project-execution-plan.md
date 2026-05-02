@@ -85,7 +85,7 @@ flowchart LR
 
 | 成員 | 角色 | 目前已完成可認領內容 | 接下來要增加的內容 | 主要檔案 |
 | --- | --- | --- | --- | --- |
-| A | 組長 / 架構 / DevOps | Docker、Compose、README、架構文件 | CI/CD、health check 文件、部署圖、監控說明、Docker 優化 | `README.md`, `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `docs/architecture.md` |
+| A | 架構 / DevOps | Docker、Compose、README、架構文件 | CI/CD、health check 文件、部署圖、監控說明、Docker 優化 | `README.md`, `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `.github/workflows/ci.yml`, `docs/architecture.md` |
 | B | 前端 / UX | 目前所有前端頁面與 RWD 操作介面 | 權限化 UI、手動分貨表單、更多統計圖、操作歷史顯示強化 | `frontend/index.html`, `frontend/app.js`, `frontend/styles.css`, `frontend/server.js` |
 | C | 後端 - Auth / 開單 / 簽核 / 權限 | JWT Auth、Request API、approve/reject API、audit 基礎紀錄 | 使用者與角色權限、簽核意見、簽核時間、audit log 查詢 API | `backend/src/auth.js`, `backend/src/routes/auth.js`, `backend/src/routes/requests.js`, `backend/src/domain.js`, `backend/src/seed.js`, `backend/test/api.test.js` |
 | D | 後端 - 樣品 / WIP / 派貨 | 收件、分貨、dispatch job、load/unload 流程 | 手動 WIP 分貨、上下貨歷史查詢、派貨限制、狀態轉換驗證 | `backend/src/routes/requests.js`, `backend/src/routes/dispatch-jobs.js`, `frontend/app.js`, `backend/test/api.test.js` |
