@@ -1,0 +1,16 @@
+{
+  "name": "cloud-lims-backend",
+  "version": "0.3.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/api.test.js"
+  },
+  "dependencies": {
+    "mongodb": "^6.20.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

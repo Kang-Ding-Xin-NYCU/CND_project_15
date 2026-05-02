@@ -1,0 +1,14 @@
+{
+  "name": "cloud-native-lims-prototype",
+  "version": "0.3.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start:backend": "HTTPS=true PORT=3443 TLS_KEY_FILE=certs/localhost-key.pem TLS_CERT_FILE=certs/localhost-cert.pem node backend/server.js",
+    "start:frontend": "HTTPS=true PORT=8443 API_BASE_URL=https://localhost:3443 TLS_KEY_FILE=certs/localhost-key.pem TLS_CERT_FILE=certs/localhost-cert.pem node frontend/server.js",
+    "test": "node --test backend/test/api.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

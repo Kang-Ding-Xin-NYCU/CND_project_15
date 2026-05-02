@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cloud-Native LIMS Prototype</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <section id="loginView" class="login-view">
+      <form id="loginForm" class="login-panel">
+        <div>
+          <p class="eyebrow">Cloud-Native LIMS</p>
+          <h1>實驗室資訊管理系統</h1>
+        </div>
+        <label>
+          帳號
+          <select name="username" required>
+            <option value="fab">廠區使用者 fab</option>
+            <option value="supervisor">實驗室主管 supervisor</option>
+            <option value="operator">實驗室人員 operator</option>
+            <option value="admin">系統管理員 admin</option>
+          </select>
+        </label>
+        <label>
+          密碼
+          <input name="password" type="password" value="password123" required>
+        </label>
+        <button class="primary-button" type="submit">登入</button>
+        <div id="loginToast" class="toast" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <div id="appShell" class="app-shell is-hidden">
+      <aside class="sidebar" aria-label="主要導覽">
+        <div class="brand">
+          <div class="brand-mark">L</div>
+          <div>
+            <p class="brand-title">Cloud LIMS</p>
+            <p class="brand-subtitle">實驗室資訊管理系統</p>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-section="dashboard">總覽</button>
+          <button class="nav-item" type="button" data-section="requests">委託開單</button>
+          <button class="nav-item" type="button" data-section="approval">簽核中心</button>
+          <button class="nav-item" type="button" data-section="lab">收件與派貨</button>
+          <button class="nav-item" type="button" data-section="equipment">機台與 Recipe</button>
+          <button class="nav-item" type="button" data-section="reports">結果與統計</button>
+        </nav>
+
+        <label class="role-switcher" for="roleSelect">
+          <span>目前角色</span>
+          <select id="roleSelect">
+            <option value="fab">廠區使用者</option>
+            <option value="supervisor">實驗室主管</option>
+            <option value="operator">實驗室人員</option>
+            <option value="admin">系統管理員</option>
+          </select>
+        </label>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Cloud-Native LIMS</p>
+            <h1 id="pageTitle">總覽</h1>
+          </div>
+          <div class="topbar-meta">
+            <span id="userBadge" class="role-badge">未登入</span>
+            <span id="roleBadge" class="role-badge">廠區使用者</span>
+            <span>Demo Site: Fab 12</span>
+            <button id="logoutButton" class="ghost-button compact-button" type="button">登出</button>
+          </div>
+        </header>
+
+        <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+        <section id="dashboard" class="view is-active" aria-labelledby="pageTitle">
+          <div class="metric-grid" id="metricGrid"></div>
+          <div class="dashboard-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Operations</p>
+                  <h2>近期委託單</h2>
+                </div>
+                <button class="ghost-button" type="button" data-section-jump="requests">新增</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>單號</th>
+                      <th>實驗</th>
+                      <th>狀態</th>
+                      <th>期限</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recentRequestRows"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Equipment</p>
+                  <h2>機台狀態</h2>
+                </div>
+              </div>
+              <div class="machine-grid" id="machineSummary"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="requests" class="view">
+          <div class="split-layout">
+            <form id="requestForm" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Request Form</p>
+                  <h2>建立委託單</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label>
+                  申請人
+                  <input name="requester" type="text" value="Ivy Chen" required>
+                </label>
+                <label>
+                  部門
+                  <input name="department" type="text" value="Fab 12 R&D" required>
+                </label>
+                <label>
+                  實驗類型
+                  <select name="labType" required>
+                    <option value="SEM">SEM 影像分析</option>
+                    <option value="XRD">XRD 晶體分析</option>
+                    <option value="FTIR">FTIR 材料分析</option>
+                    <option value="Electrical">Electrical Test</option>
+                  </select>
+                </label>
+                <label>
+                  優先級
+                  <select name="priority" required>
+                    <option value="Normal">一般</option>
+                    <option value="High">高</option>
+                    <option value="Critical">緊急</option>
+                  </select>
+                </label>
+                <label>
+                  需求日期
+                  <input name="dueDate" type="date" value="2026-05-09" required>
+                </label>
+                <label>
+                  樣品代碼
+                  <input name="sampleCode" type="text" value="SMP-NEW-01" required>
+                </label>
+                <label>
+                  樣品材料
+                  <input name="material" type="text" value="Wafer Lot A29" required>
+                </label>
+                <label>
+                  樣品數量
+                  <input name="quantity" type="number" min="1" value="4" required>
+                </label>
+                <label class="wide-field">
+                  實驗目的與內容
+                  <textarea name="goal" rows="4" required>確認薄膜缺陷分布，需輸出影像與初步判讀。</textarea>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">+ 送出簽核</button>
+            </form>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Request Queue</p>
+                  <h2>委託單列表</h2>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>單號</th>
+                      <th>申請人</th>
+                      <th>樣品</th>
+                      <th>狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody id="requestRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="approval" class="view">
+          <div class="dashboard-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Approval</p>
+                  <h2>待簽核委託單</h2>
+                </div>
+              </div>
+              <div id="approvalQueue" class="stack-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Audit</p>
+                  <h2>操作歷程</h2>
+                </div>
+              </div>
+              <div id="auditTrail" class="timeline"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="lab" class="view">
+          <div class="dashboard-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Receiving</p>
+                  <h2>收件與分貨</h2>
+                </div>
+              </div>
+              <div id="receivingList" class="stack-list"></div>
+            </div>
+
+            <form id="dispatchForm" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Dispatch</p>
+                  <h2>派貨到機台</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label>
+                  委託單
+                  <select id="dispatchRequest" name="requestId" required></select>
+                </label>
+                <label>
+                  WIP / 樣品
+                  <select id="dispatchWip" name="wipId" required></select>
+                </label>
+                <label>
+                  機台
+                  <select id="dispatchEquipment" name="equipmentId" required></select>
+                </label>
+                <label>
+                  Recipe
+                  <select id="dispatchRecipe" name="recipeId" required></select>
+                </label>
+                <label class="wide-field">
+                  派貨備註
+                  <textarea name="note" rows="3">依委託單條件安排標準流程。</textarea>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">→ 建立派貨任務</button>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Jobs</p>
+                <h2>實驗任務</h2>
+              </div>
+            </div>
+            <div id="jobBoard" class="job-grid"></div>
+          </div>
+        </section>
+
+        <section id="equipment" class="view">
+          <div class="dashboard-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Equipment</p>
+                  <h2>機台管理</h2>
+                </div>
+              </div>
+              <div id="equipmentList" class="stack-list"></div>
+            </div>
+
+            <form id="recipeForm" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Recipe</p>
+                  <h2>新增 Recipe</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label>
+                  適用機台
+                  <select id="recipeEquipment" name="equipmentId" required></select>
+                </label>
+                <label>
+                  Recipe 名稱
+                  <input name="name" type="text" value="Defect Review Fast Scan" required>
+                </label>
+                <label>
+                  版本
+                  <input name="version" type="text" value="1.0.0" required>
+                </label>
+                <label>
+                  關鍵參數
+                  <input name="parameters" type="text" value="voltage=5kV; dwell=20ms" required>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">+ 新增 Recipe</button>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Recipe Versions</p>
+                <h2>Recipe 清單</h2>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Recipe</th>
+                    <th>機台</th>
+                    <th>版本</th>
+                    <th>參數</th>
+                  </tr>
+                </thead>
+                <tbody id="recipeRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="reports" class="view">
+          <div class="dashboard-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Reports</p>
+                  <h2>結果管理</h2>
+                </div>
+              </div>
+              <div id="resultList" class="stack-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Utilization</p>
+                  <h2>機台利用率</h2>
+                </div>
+              </div>
+              <div id="utilizationChart" class="chart-list"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Alarms</p>
+                <h2>異常告警</h2>
+              </div>
+              <button id="createAlarmButton" class="ghost-button" type="button">+ 模擬告警</button>
+            </div>
+            <div id="alarmList" class="stack-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
