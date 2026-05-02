@@ -1,15 +1,14 @@
-FROM node:22-alpine
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY server.js ./
-COPY src ./src
-COPY test ./test
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+COPY tests ./tests
 
 RUN mkdir -p /app/data
 
 EXPOSE 3443
 
-CMD ["npm", "start"]
+CMD ["python", "-m", "app.main"]

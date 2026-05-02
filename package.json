@@ -4,9 +4,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start:backend": "HTTPS=true PORT=3443 TLS_KEY_FILE=certs/localhost-key.pem TLS_CERT_FILE=certs/localhost-cert.pem node backend/server.js",
+    "start:backend": "wsl bash -lc \"cd backend && ../.venv/bin/python -m app.main\"",
     "start:frontend": "HTTPS=true PORT=8443 API_BASE_URL=https://localhost:3443 TLS_KEY_FILE=certs/localhost-key.pem TLS_CERT_FILE=certs/localhost-cert.pem node frontend/server.js",
-    "test": "node --test backend/test/api.test.js"
+    "test": "wsl .venv/bin/python -m pytest backend/tests"
   },
   "engines": {
     "node": ">=20"
