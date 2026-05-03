@@ -2,4 +2,7 @@
 .pytest_cache/
 __pycache__/
 *.py[cod]
-
+.python-version
+certs/
+data/
+backend/data/

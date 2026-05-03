@@ -1,10 +1,38 @@
 # Cloud-Native LIMS Prototype
 
+## 環境版本
+
+目前 `fastapi-backend` 分支的後端已改為 FastAPI。以下是本機/WSL 驗證過的版本與專案需求：
+
+| 項目 | 版本 |
+| --- | --- |
+| WSL Python | `3.12.11` |
+| Backend runtime | `Python 3.12` |
+| Backend framework | `FastAPI >=0.115,<1.0` |
+| ASGI server | `uvicorn[standard] >=0.30,<1.0` |
+| MongoDB driver | `pymongo >=4.6,<5` |
+| Backend tests | `pytest >=8,<9`, `httpx >=0.27,<1` |
+| Node.js | `>=20`; 本機驗證為 `v24.13.0` |
+| npm | `11.6.2` |
+| Docker Compose | 需要 Docker Engine + Compose v2；目前此 shell 未安裝 `docker` 指令 |
+| Docker backend image | `python:3.12-slim` |
+| Docker MongoDB image | `mongo:7` |
+| Docker Redis image | `redis:7-alpine` |
+
+確認版本可使用：
+
+```bash
+python3 --version
+node --version
+npm --version
+docker compose version
+```
+
 本資料夾整理了課程 PDF 中「實驗室資訊管理系統」題目的架構草案、五人分工與前後端分離的可互動系統雛形。
 
 ## 檔案
 
-- `frontend/`：前端靜態頁面與前端 HTTPS server，預設跑在 `https://localhost:8443/`。
+- `frontend/`：前端靜態頁面與前端 HTTPS server，預設跑在 `https://localhost:8080/`。
 - `backend/`：後端 HTTPS REST API、JWT Auth、Redis cache、MongoDB store、domain helper 與 API 測試，預設跑在 `https://localhost:3443/`。
 - `docs/architecture.md`：系統架構、模組切分、狀態流程、資料模型、API 與雲原生設計。
 - `docs/team-division.md`：五人分工方式、評分項目對應與建議里程碑。
@@ -22,7 +50,7 @@ docker compose up --build
 啟動後打開前端：
 
 ```text
-https://localhost:8443/
+https://localhost:8080/
 ```
 
 後端健康檢查：
@@ -95,6 +123,6 @@ npm test
 docker compose up --build
 ```
 
-前端服務：`https://localhost:8443/`
+前端服務：`https://localhost:8080/`
 
 後端 API：`https://localhost:3443/api/health`

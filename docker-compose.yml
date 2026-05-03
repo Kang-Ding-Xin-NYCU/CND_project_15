@@ -25,11 +25,11 @@ services:
     build:
       context: ./frontend
     ports:
-      - "8443:8443"
+      - "8080:8080"
     volumes:
       - ./certs:/certs:ro
     environment:
-      PORT: 8443
+      PORT: 8080
       HTTPS: "true"
       TLS_KEY_FILE: /certs/localhost-key.pem
       TLS_CERT_FILE: /certs/localhost-cert.pem

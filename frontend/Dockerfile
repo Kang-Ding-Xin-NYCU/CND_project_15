@@ -8,6 +8,6 @@ COPY index.html ./
 COPY app.js ./
 COPY styles.css ./
 
-EXPOSE 8443
+EXPOSE 8080
 
 CMD ["npm", "start"]

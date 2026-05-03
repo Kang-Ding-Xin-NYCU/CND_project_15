@@ -2,6 +2,19 @@
 
 The active backend implementation is in `backend/app`.
 
+## Environment versions
+
+| Item | Version |
+| --- | --- |
+| WSL Python | `3.12.11` |
+| Backend runtime | `Python 3.12` |
+| FastAPI | `>=0.115,<1.0` |
+| Uvicorn | `>=0.30,<1.0` |
+| PyMongo | `>=4.6,<5` |
+| pytest | `>=8,<9` |
+| httpx | `>=0.27,<1` |
+| Docker image | `python:3.12-slim` |
+
 ## Local WSL setup
 
 ```bash
@@ -19,4 +32,3 @@ From `backend/`:
 ```
 
 By default this starts HTTP on port `3000`. Docker Compose still sets `HTTPS=true`, `PORT=3443`, MongoDB, Redis, and TLS file paths for the containerized deployment.
-
