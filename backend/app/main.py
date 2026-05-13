@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .auth import TOKEN_TTL_SECONDS, authenticate_header, public_user, sign_jwt, verify_password
+from .auth import TOKEN_TTL_SECONDS, authenticate_header, public_user, require_roles, sign_jwt, verify_password
 from .cache import CACHE_UNAVAILABLE, create_redis_cache
 from .config import (
     DEFAULT_DATA_FILE,
@@ -187,6 +187,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/reset")
     def reset(request: Request) -> dict[str, Any]:
+        require_roles(request.state.user, "admin")
         return {"state": request.app.state.store.reset(), "message": "Demo data reset"}
 
     @app.get("/api/dashboard")
@@ -234,6 +235,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/requests", response_model=None)
     async def create_request(request: Request):
+        require_roles(request.state.user, "fab")
         body = await _read_json_body(request)
         _require_fields(
             body,
@@ -270,8 +272,16 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/requests/{request_id}/{action}")
     async def request_action(request_id: str, action: str, request: Request) -> dict[str, Any]:
-        if action not in ["approve", "reject", "receive", "split", "close"]:
+        action_roles = {
+            "approve": ("supervisor",),
+            "reject": ("supervisor",),
+            "receive": ("operator",),
+            "split": ("operator",),
+            "close": ("operator",),
+        }
+        if action not in action_roles:
             raise ApiError("API route not found", 404)
+        require_roles(request.state.user, *action_roles[action])
         body = await _read_json_body(request)
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
@@ -344,6 +354,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/dispatch-jobs", response_model=None)
     async def create_dispatch_job(request: Request):
+        require_roles(request.state.user, "operator")
         body = await _read_json_body(request)
         _require_fields(body, ["requestId", "wipId", "equipmentId", "recipeId"])
 
@@ -391,6 +402,7 @@ def create_app(store: Any | None = None) -> FastAPI:
     async def dispatch_job_action(job_id: str, action: str, request: Request) -> dict[str, Any]:
         if action not in ["load", "unload"]:
             raise ApiError("API route not found", 404)
+        require_roles(request.state.user, "operator")
         body = await _read_json_body(request)
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
@@ -444,6 +456,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/equipment/{equipment_id}/status")
     async def change_equipment_status(equipment_id: str, request: Request) -> dict[str, Any]:
+        require_roles(request.state.user, "operator")
         body = await _read_json_body(request)
         _require_fields(body, ["status"])
 
@@ -473,6 +486,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/recipes", response_model=None)
     async def create_recipe(request: Request):
+        require_roles(request.state.user, "admin")
         body = await _read_json_body(request)
         _require_fields(body, ["equipmentId", "name", "version", "parameters"])
 
@@ -499,6 +513,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/alarms/{alarm_id}/ack")
     async def acknowledge_alarm(alarm_id: str, request: Request) -> dict[str, Any]:
+        require_roles(request.state.user, "operator")
         body = await _read_json_body(request)
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:
@@ -518,6 +533,7 @@ def create_app(store: Any | None = None) -> FastAPI:
 
     @app.post("/api/alarms/simulate", response_model=None)
     async def simulate_alarm(request: Request):
+        require_roles(request.state.user, "operator")
         body = await _read_json_body(request)
 
         def mutate(state: dict[str, Any]) -> dict[str, Any]:

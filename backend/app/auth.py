@@ -10,6 +10,7 @@ from .config import JWT_SECRET
 from .errors import ApiError
 
 TOKEN_TTL_SECONDS = 60 * 60 * 8
+ADMIN_ROLE = "admin"
 
 
 def _base64_url_encode(raw: bytes) -> str:
@@ -114,3 +115,9 @@ def authenticate_header(authorization: str | None, cache: Any) -> dict[str, Any]
             raise ApiError("Session expired or revoked", 401)
     return payload
 
+
+def require_roles(user: dict[str, Any], *roles: str) -> None:
+    role = str(user.get("role", ""))
+    if role == ADMIN_ROLE or role in roles:
+        return
+    raise ApiError("Forbidden: insufficient role", 403)

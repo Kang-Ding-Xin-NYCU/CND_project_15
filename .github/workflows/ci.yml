@@ -2,12 +2,7 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - fastapi-backend
   pull_request:
-    branches:
-      - main
 
 jobs:
   backend-test:
