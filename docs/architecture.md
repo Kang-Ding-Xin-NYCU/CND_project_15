@@ -19,7 +19,7 @@
 flowchart LR
   Browser[Browser] --> Frontend[Frontend HTTPS Service<br/>localhost:8443<br/>frontend/]
   Frontend --> Backend[Backend HTTPS REST API<br/>localhost:3443<br/>backend/]
-  Backend --> Mongo[(MongoDB<br/>app_state)]
+  Backend --> Mongo[(MongoDB<br/>entity collections<br/>app_meta)]
   Backend --> Redis[(Redis<br/>JWT session / dashboard cache)]
   Backend -. local test fallback .-> Store[JSON Store<br/>data/lims-state.json]
   Tests[API Tests<br/>backend/test] --> Backend
@@ -27,7 +27,9 @@ flowchart LR
   Compose --> Backend
 ```
 
-期末可再把 backend 內的功能模組逐步替換成資料庫、認證服務、事件 broker 與監控元件。
+目前 MongoDB 已拆成 `users`、`requests`、`equipment`、`recipes`、`jobs`、`results`、`alarms`、`audit` 等 collection，序號與 schema version 放在 `app_meta`。未設定 MongoDB 時，後端仍會使用 JSON file 作為本機測試 fallback。
+
+期末可再把 backend 內的功能模組逐步替換成認證服務、事件 broker 與監控元件。
 
 ```mermaid
 flowchart LR
