@@ -32,3 +32,9 @@ From `backend/`:
 ```
 
 By default this starts HTTP on port `3000`. Docker Compose still sets `HTTPS=true`, `PORT=3443`, MongoDB, Redis, and TLS file paths for the containerized deployment.
+
+## Database storage
+
+When `MONGO_URL` is set, the backend uses MongoDB through PyMongo. The state is stored across `users`, `requests`, `equipment`, `recipes`, `jobs`, `results`, `alarms`, and `audit` collections, with counters and schema metadata in `app_meta`.
+
+If MongoDB is not configured, the backend uses the JSON fallback file from `DATA_FILE`. Existing legacy MongoDB data in the old `app_state` document is migrated automatically on first startup.

@@ -6,3 +6,5 @@ __pycache__/
 certs/
 data/
 backend/data/
+node_modules/
+backend/node_modules/

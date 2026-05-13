@@ -67,7 +67,9 @@ Docker Compose 模式會使用：
 - Redis：`redis://localhost:6379`，後端容器內使用 `redis://redis:6379`
 - JWT Secret：由 `docker-compose.yml` 的 `JWT_SECRET` 設定
 
-Docker Compose 模式會把資料保存到 MongoDB；未設定 `MONGO_URL` 的本機 Node 模式會 fallback 到 `data/lims-state.json`。
+Docker Compose 模式會把資料保存到 MongoDB；未設定 `MONGO_URL` 的本機 FastAPI 模式會 fallback 到 `data/lims-state.json`。
+
+MongoDB 會使用多個 collection 保存主要資料：`users`、`requests`、`equipment`、`recipes`、`jobs`、`results`、`alarms`、`audit`。`app_meta` 保存 request/job/recipe/alarm 序號與 schema version；若既有資料仍在舊版 `app_state` 單一 document，後端第一次啟動時會自動遷移到新的 collection layout。
 
 登入帳號：
 

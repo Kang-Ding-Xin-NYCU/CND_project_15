@@ -9,6 +9,13 @@ from .config import MONGO_DB_NAME
 from .seed import create_initial_state
 
 CACHE_KEYS = ("state", "dashboard")
+STATE_COLLECTION_KEYS = ("users", "requests", "equipment", "recipes", "jobs", "results", "alarms", "audit")
+SEQUENCE_KEYS = ("requestSeq", "recipeSeq", "jobSeq", "alarmSeq")
+DEFAULT_SEQUENCE_VALUES = {"requestSeq": 4, "recipeSeq": 4, "jobSeq": 2, "alarmSeq": 2}
+MONGO_META_COLLECTION = "app_meta"
+MONGO_META_ID = "state-meta"
+MONGO_SCHEMA_VERSION = 2
+LEGACY_STATE_COLLECTION = "app_state"
 
 
 def _invalidate_cache(cache: Any) -> None:
@@ -62,12 +69,15 @@ class MongoStore:
         self.cache = cache or NoopCache()
         self.db_name = db_name
         self._client = None
-        self._collection = None
+        self._db = None
+        self._ready = False
         self._lock = threading.RLock()
 
-    def _get_collection(self) -> Any:
-        if self._collection is not None:
-            return self._collection
+    def _get_db(self) -> Any:
+        if self._db is not None:
+            if not self._ready:
+                self._ensure_ready(self._db)
+            return self._db
         try:
             from pymongo import MongoClient
         except ImportError as exc:
@@ -90,26 +100,79 @@ class MongoStore:
         else:
             raise last_error
 
-        db = self._client[self.db_name]
-        self._collection = db["app_state"]
-        if not self._collection.find_one({"_id": "lims-state"}):
-            self._collection.insert_one(
-                {"_id": "lims-state", "state": create_initial_state(), "updatedAt": datetime.now(timezone.utc)}
-            )
-        return self._collection
+        self._db = self._client[self.db_name]
+        self._ensure_ready(self._db)
+        return self._db
+
+    def _ensure_ready(self, db: Any) -> None:
+        if self._ready:
+            return
+        self._ensure_indexes(db)
+
+        meta = db[MONGO_META_COLLECTION].find_one({"_id": MONGO_META_ID})
+        if not meta:
+            legacy = db[LEGACY_STATE_COLLECTION].find_one({"_id": "lims-state"})
+            state = legacy.get("state") if legacy and isinstance(legacy.get("state"), dict) else create_initial_state()
+            self._replace_state(db, state)
+
+        self._ready = True
+
+    def _ensure_indexes(self, db: Any) -> None:
+        for collection_name in STATE_COLLECTION_KEYS:
+            db[collection_name].create_index("_order")
+
+        db["users"].create_index("username", unique=True)
+        db["requests"].create_index("status")
+        db["requests"].create_index("dueDate")
+        db["equipment"].create_index("status")
+        db["recipes"].create_index([("equipmentId", 1), ("active", 1)])
+        db["jobs"].create_index("status")
+        db["jobs"].create_index("requestId")
+        db["jobs"].create_index("equipmentId")
+        db["results"].create_index("requestId")
+        db["results"].create_index("jobId")
+        db["alarms"].create_index("status")
+        db["alarms"].create_index("equipmentId")
+        db["audit"].create_index("occurredAt")
+
+    def _replace_state(self, db: Any, state: dict[str, Any]) -> None:
+        for collection_name in STATE_COLLECTION_KEYS:
+            collection = db[collection_name]
+            collection.delete_many({})
+            documents = []
+            for position, item in enumerate(state.get(collection_name, [])):
+                document = dict(item)
+                if "id" in document:
+                    document["_id"] = document["id"]
+                document["_order"] = position
+                documents.append(document)
+            if documents:
+                collection.insert_many(documents)
+
+        metadata = {
+            "_id": MONGO_META_ID,
+            "schemaVersion": MONGO_SCHEMA_VERSION,
+            "updatedAt": datetime.now(timezone.utc),
+        }
+        metadata.update({key: state.get(key, DEFAULT_SEQUENCE_VALUES[key]) for key in SEQUENCE_KEYS})
+        db[MONGO_META_COLLECTION].replace_one({"_id": MONGO_META_ID}, metadata, upsert=True)
 
     def read(self) -> dict[str, Any]:
         with self._lock:
-            document = self._get_collection().find_one({"_id": "lims-state"})
-            return document.get("state") if document else create_initial_state()
+            db = self._get_db()
+            metadata = db[MONGO_META_COLLECTION].find_one({"_id": MONGO_META_ID}) or {}
+            state = {key: metadata.get(key, DEFAULT_SEQUENCE_VALUES[key]) for key in SEQUENCE_KEYS}
+            for collection_name in STATE_COLLECTION_KEYS:
+                documents = []
+                for document in db[collection_name].find({}, {"_id": 0}).sort("_order", 1):
+                    document.pop("_order", None)
+                    documents.append(document)
+                state[collection_name] = documents
+            return state
 
     def write(self, state: dict[str, Any]) -> None:
         with self._lock:
-            self._get_collection().update_one(
-                {"_id": "lims-state"},
-                {"$set": {"state": state, "updatedAt": datetime.now(timezone.utc)}},
-                upsert=True,
-            )
+            self._replace_state(self._get_db(), state)
             _invalidate_cache(self.cache)
 
     def update(self, mutator: Callable[[dict[str, Any]], dict[str, Any] | None]) -> dict[str, Any]:
@@ -133,4 +196,3 @@ def create_store(data_file: str, cache: Any | None = None, mongo_url: str = "", 
     if mongo_url:
         return MongoStore(mongo_url, cache, db_name)
     return JsonStore(data_file, cache)
-
