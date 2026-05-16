@@ -12,22 +12,62 @@
 
 目前採前後端分離、容器化、FastAPI 後端、MongoDB 持久化、Redis session/cache、pytest 與 Node frontend tests。
 
-## 2. 部署架構
+## 2. System Architecture
+
+依照 L05 對 System Architecture 的定義，這一層描述的是整個系統如何在運行環境中持續提供服務，重點是可用性、伸縮性、容錯性、安全邊界、資料與 cache 等 backing services。此專案目前是可展示的 Docker Compose / localhost 架構，尚未進入 DNS、CDN、Load Balancer、Kubernetes 多節點與跨 failure zone 的正式高可用階段。
 
 ```mermaid
-flowchart LR
-  User[使用者瀏覽器] --> Frontend[Frontend HTTPS Static Server<br/>Node.js<br/>localhost:8080]
-  Frontend --> Assets[HTML / CSS / Vanilla JS<br/>frontend/]
-  Assets --> Backend[Backend HTTPS REST API<br/>FastAPI / Python 3.12<br/>localhost:3443]
-  Backend --> Mongo[(MongoDB 7<br/>users / requests / equipment / recipes / jobs / results / alarms / audit<br/>app_meta)]
-  Backend --> Redis[(Redis 7<br/>JWT session / state cache / dashboard cache)]
-  Backend -. local fallback .-> JsonStore[JSON Store<br/>data/lims-state.json]
-  Tests[pytest + httpx<br/>Node test runner] --> Backend
-  Compose[Docker Compose] --> Frontend
+flowchart TB
+  subgraph Access["Client / Access"]
+    User["Fab / Supervisor / Operator / Admin<br/>Browser"]
+  end
+
+  subgraph Runtime["Current Runtime - Docker Compose / Localhost"]
+    Frontend["frontend container<br/>Node.js HTTPS static server<br/>localhost:8080"]
+    Assets["HTML / CSS / Vanilla JS<br/>frontend/index.html, app.js, styles.css<br/>runtime /config.js"]
+    Backend["backend container<br/>FastAPI + Uvicorn<br/>Python 3.12<br/>localhost:3443"]
+    Mongo[("MongoDB 7<br/>cloud_lims<br/>users / requests / equipment / recipes<br/>jobs / results / alarms / audit / app_meta")]
+    Redis[("Redis 7<br/>JWT session<br/>state cache<br/>dashboard cache")]
+    JsonStore[("JSON fallback<br/>data/lims-state.json")]
+    Certs[("Bind mounts<br/>certs/<br/>data/")]
+  end
+
+  subgraph Delivery["Delivery / Verification"]
+    Compose["docker-compose.yml<br/>frontend / backend / mongo / redis"]
+    Test["npm test<br/>pytest + httpx<br/>node:test"]
+    CI["GitHub Actions CI<br/>.github/workflows/ci.yml"]
+  end
+
+  User -->|"HTTPS :8080"| Frontend
+  Frontend -->|"serves static assets"| Assets
+  Assets -. runs in browser .-> User
+  User -->|"REST JSON + Bearer JWT + API_BASE_URL"| Backend
+  Backend -->|"read / write"| Mongo
+  Backend -->|"session + cache"| Redis
+  Backend -. local fallback when MONGO_URL is empty .-> JsonStore
+  Frontend --> Certs
+  Backend --> Certs
+  Compose --> Frontend
   Compose --> Backend
   Compose --> Mongo
   Compose --> Redis
+  CI --> Test
+  Test --> Frontend
+  Test --> Backend
 ```
+
+### L05 對照
+
+| L05 架構關注點 | 目前專案狀態 | 後續演進方向 |
+| --- | --- | --- |
+| DNS / CDN | 目前為 localhost demo，尚無正式網域與 CDN | 正式部署時可將前端靜態資源放 CDN，API 經 DNS 指到 ingress / load balancer |
+| Load Balancer / Reverse Proxy | 目前 frontend、backend 各單一 container | 後端 stateless 化後可水平擴展多個 FastAPI instance，前方加 LB / ingress |
+| Application Cluster | 目前單節點，Docker Compose 管理依賴服務 | Kubernetes deployment + replica + readiness/liveness probe |
+| Session | JWT 本身 stateless，但 Redis 保存 session jti 以支援 logout / revoke | 多節點 backend 可共用 Redis session，不需 sticky session |
+| Cache | Redis 已用於 session、`/api/state` 與 dashboard cache | 擴充 dashboard、查詢與 equipment status cache，並建立 cache invalidation 規則 |
+| Database | MongoDB 7，多 collection；本機無 `MONGO_URL` 時 fallback JSON | Production 需 Mongo replica set、備份、索引檢查與資料量成長策略 |
+| High Availability | 目前無 HA，服務重啟會造成短暫不可用 | 至少 backend 2 replicas、Mongo replica set、Redis HA、health check 與自動 failover |
+| Capacity Planning | 尚未壓測；目前以 MVP demo workload 為假設 | 依 DAU、PV、讀寫比、尖峰 QPS 與單機壓測結果決定 replica 數與 DB 容量 |
 
 ### 目前服務
 
@@ -38,7 +78,77 @@ flowchart LR
 | MongoDB | `mongo:7` | `27017` | Docker Compose 模式主要資料庫 |
 | Redis | `redis:7-alpine` | `6379` | JWT session、state/dashboard cache |
 
-## 3. 程式結構
+## 3. Application Architecture
+
+依照 L06 對 Application Architecture 的定義，這一層描述單一應用或子系統內部如何分層，重點是可維護性、可擴充性、可測試性與低耦合高內聚。此專案目前採前後端分離與後端輕量分層；API route 與 use case orchestration 仍集中在 `backend/app/main.py`，後續功能增加時應拆出 application service / route modules。
+
+```mermaid
+flowchart TB
+  subgraph Presentation["Presentation / I-O Layer"]
+    UI["frontend/index.html + app.js<br/>single page UI<br/>rendering, form handlers, API client"]
+    StaticServer["frontend/server.js<br/>HTTPS static server<br/>/config.js runtime API base URL"]
+    API["backend/app/main.py<br/>FastAPI routes, middleware<br/>request validation, response mapping"]
+  end
+
+  subgraph Application["Application Service / Use Case Layer"]
+    UseCases["LIMS use cases<br/>login / create request / approve / reject<br/>receive / split / dispatch / load / unload<br/>recipe / alarm / reset"]
+    Auth["backend/app/auth.py<br/>JWT, password hash, RBAC"]
+    Dashboard["backend/app/dashboard.py<br/>dashboard aggregation"]
+  end
+
+  subgraph Domain["Domain Layer"]
+    DomainHelpers["backend/app/domain.py<br/>entity lookup, status guards<br/>audit helper, WIP/sample status update"]
+    Entities["Domain state<br/>users, requests, samples, wips<br/>equipment, recipes, jobs, results, alarms, audit"]
+  end
+
+  subgraph RepositoryInfra["Repository / Infrastructure Layer"]
+    Store["backend/app/store.py<br/>JsonStore / MongoStore<br/>migration, indexes, state update boundary"]
+    Cache["backend/app/cache.py<br/>RedisCache / NoopCache"]
+    Config["backend/app/config.py<br/>env vars, TLS, ports<br/>Mongo / Redis endpoints"]
+    Seed["backend/app/seed.py<br/>demo initial state"]
+    MongoDB[("MongoDB collections")]
+    RedisDB[("Redis")]
+    JsonFile[("JSON data file")]
+  end
+
+  UI --> StaticServer
+  UI -->|"REST JSON"| API
+  API --> UseCases
+  API --> Auth
+  UseCases --> DomainHelpers
+  UseCases --> Dashboard
+  DomainHelpers --> Entities
+  Dashboard --> Entities
+  UseCases --> Store
+  Auth --> Cache
+  Store --> Cache
+  Store --> MongoDB
+  Store -. local fallback .-> JsonFile
+  Cache --> RedisDB
+  Config --> API
+  Config --> Store
+  Config --> Cache
+  Seed --> Store
+```
+
+### L06 分層對照
+
+| L06 分層 | 目前對應檔案 | 職責 |
+| --- | --- | --- |
+| Presentation / Controller | `frontend/index.html`, `frontend/app.js`, `frontend/server.js`, `backend/app/main.py` routes | UI render、表單操作、HTTP request/response、payload validation、錯誤回應 |
+| Application Service | `backend/app/main.py` route handlers, `backend/app/dashboard.py` | 編排 LIMS use case 流程，例如開單、簽核、收件、分貨、派貨、上下貨、告警 |
+| Domain | `backend/app/domain.py`, `backend/app/seed.py` 的 domain state | 委託單與 job 狀態規則、entity lookup、audit、sample/WIP 狀態變更 |
+| Repository / Persistence | `backend/app/store.py` | 封裝 JSON / MongoDB persistence、collection layout、migration、cache invalidation |
+| Infrastructure | `backend/app/cache.py`, `backend/app/config.py`, Docker Compose | Redis、環境設定、TLS、port、container backing services |
+| Cross-cutting | `backend/app/auth.py`, `backend/app/errors.py` | JWT、RBAC、password hash、API error model |
+
+### Application Architecture 現況判斷
+
+- 已做到前後端分離、REST API、JWT/RBAC、store abstraction、Redis/Noop cache abstraction，測試可直接注入 JSON store。
+- 目前 `backend/app/main.py` 同時承擔 controller 與 application service，對 MVP 可接受；若功能增加，應把 requests、dispatch jobs、equipment、recipes、alarms 拆成 route module 與 service module。
+- Domain rule 已開始集中到 `domain.py`，但狀態轉換仍有不少邏輯在 route handler。下一步可抽出 `RequestService`、`DispatchService`、`AlarmService`，讓 domain rule 與 persistence boundary 更清楚。
+
+## 4. 程式結構
 
 ```text
 backend/
@@ -68,7 +178,7 @@ docker-compose.yml   frontend / backend / mongo / redis
 .github/workflows/ci.yml
 ```
 
-## 4. 角色與權限
+## 5. 角色與權限
 
 | 角色 | 帳號 | 權限 |
 | --- | --- | --- |
@@ -79,7 +189,7 @@ docker-compose.yml   frontend / backend / mongo / redis
 
 除 `GET /api/health` 與 `POST /api/auth/login` 外，所有 `/api/*` 都需要 `Authorization: Bearer <JWT>`。
 
-## 5. 核心狀態流程
+## 6. 核心狀態流程
 
 ```mermaid
 stateDiagram-v2
@@ -101,7 +211,7 @@ stateDiagram-v2
 - 只有 `received` 或 `split` 可 dispatch。
 - job 只有 `queued` 可 load，只有 `running` / `loaded` 可 unload。
 
-## 6. 主要 API
+## 7. 主要 API
 
 | Method | Path | 權限 | 說明 |
 | --- | --- | --- | --- |
@@ -129,7 +239,7 @@ stateDiagram-v2
 | `POST` | `/api/alarms/{id}/ack` | `operator` | 確認告警 |
 | `POST` | `/api/reset` | `admin` | 重置 demo data |
 
-## 7. 資料儲存
+## 8. 資料儲存
 
 Docker Compose 模式使用 MongoDB，資料拆成多個 collection：
 
@@ -149,7 +259,7 @@ app_meta
 
 未設定 `MONGO_URL` 時使用 JSON fallback：`data/lims-state.json`。這主要給本機開發與測試使用。
 
-## 8. 測試現況
+## 9. 測試現況
 
 Root command：
 
@@ -175,7 +285,7 @@ Frontend tests：
 - `frontend/tests/server.test.js`
 - 涵蓋 frontend static server、`config.js`、content type、404、405、path traversal 防護。
 
-## 9. 目前限制
+## 10. 目前限制
 
 | 類別 | 限制 |
 | --- | --- |
@@ -187,4 +297,3 @@ Frontend tests：
 | Observability | 目前只有 health check，尚無 metrics/log format/tracing |
 | Docker/K8s | 有 Docker Compose，尚未有 Docker healthcheck、restart policy、Kubernetes manifests |
 | Backend 架構 | API route 目前集中於 `backend/app/main.py`，功能增加後應拆 routes |
-
