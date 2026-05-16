@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from .errors import ApiError
+
 
 def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,3 +47,14 @@ def set_item_status(request: dict[str, Any], item_id: str, status: str) -> None:
         if item["id"] == item_id:
             item["status"] = status
 
+
+def assert_request_status(request: dict[str, Any], allowed_statuses: list[str] | tuple[str, ...], action: str) -> None:
+    if request.get("status") not in allowed_statuses:
+        allowed = ", ".join(allowed_statuses)
+        raise ApiError(f"Cannot {action} request in status {request.get('status')}; expected one of: {allowed}", 409)
+
+
+def assert_job_status(job: dict[str, Any], allowed_statuses: list[str] | tuple[str, ...], action: str) -> None:
+    if job.get("status") not in allowed_statuses:
+        allowed = ", ".join(allowed_statuses)
+        raise ApiError(f"Cannot {action} job in status {job.get('status')}; expected one of: {allowed}", 409)

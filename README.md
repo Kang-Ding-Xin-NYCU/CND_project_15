@@ -34,9 +34,8 @@ docker compose version
 
 - `frontend/`：前端靜態頁面與前端 HTTPS server，預設跑在 `https://localhost:8080/`。
 - `backend/`：後端 HTTPS REST API、JWT Auth、Redis cache、MongoDB store、domain helper 與 API 測試，預設跑在 `https://localhost:3443/`。
-- `docs/architecture.md`：系統架構、模組切分、狀態流程、資料模型、API 與雲原生設計。
-- `docs/team-division.md`：五人分工方式、評分項目對應與建議里程碑。
-- `docs/project-execution-plan.md`：目前完成內容、五人分工、系統架構圖、後續新增功能與檔案修改位置。
+- `docs/current-system-architecture.md`：目前已實作的系統架構、API、資料儲存、測試與限制。
+- `docs/future-optimization-and-workplan.md`：未來優化 roadmap 與五人分工。
 - `docker-compose.yml`：同時啟動 frontend 與 backend 的容器化設定。
 
 ## 使用方式
@@ -80,7 +79,12 @@ MongoDB 會使用多個 collection 保存主要資料：`users`、`requests`、`
 | 實驗室人員 | `operator` | `password123` |
 | 系統管理員 | `admin` | `password123` |
 
-也可以分別用 Node 啟動：
+也可以分別啟動 FastAPI 後端與 Node 前端。以下 npm scripts 會使用專案根目錄的 `.venv/bin/python`，請先建立虛擬環境並安裝後端 dependencies：
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.txt
+```
 
 ```bash
 npm run start:backend
@@ -117,7 +121,10 @@ npm run start:frontend
 npm test
 ```
 
-測試會驗證開單、簽核、收件、分貨、派貨、上貨、下貨、自動結案與告警處理。
+測試會依序執行：
+
+- `npm run test:backend`：`.venv/bin/python -m pytest backend/tests`，驗證開單、簽核、收件、分貨、派貨、上貨、下貨、自動結案與告警處理。
+- `npm run test:frontend`：`node --test frontend/tests/*.test.js`，驗證前端靜態 server、`config.js`、404/405 與路徑防護。
 
 ## Docker 啟動
 

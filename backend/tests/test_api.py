@@ -184,6 +184,115 @@ async def test_rbac_rejects_supervisor_dispatch(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_request_actions_enforce_state_transitions(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+        supervisor_token = await login(client, "supervisor")
+
+        receive_too_early = await client.post(
+            "/api/requests/REQ-2026-001/receive",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={},
+        )
+        assert receive_too_early.status_code == 409
+        assert "Cannot receive request in status pending_approval" in receive_too_early.json()["error"]
+
+        approved = await json_request(
+            client,
+            "POST",
+            "/api/requests/REQ-2026-001/approve",
+            token=supervisor_token,
+            json={},
+        )
+        assert next(item for item in approved["state"]["requests"] if item["id"] == "REQ-2026-001")["status"] == "approved"
+
+        approve_again = await client.post(
+            "/api/requests/REQ-2026-001/approve",
+            headers={"Authorization": f"Bearer {supervisor_token}"},
+            json={},
+        )
+        assert approve_again.status_code == 409
+        assert "Cannot approve request in status approved" in approve_again.json()["error"]
+
+        split_before_receive = await client.post(
+            "/api/requests/REQ-2026-001/split",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={},
+        )
+        assert split_before_receive.status_code == 409
+        assert "Cannot split request in status approved" in split_before_receive.json()["error"]
+
+
+@pytest.mark.anyio
+async def test_dispatch_rejects_invalid_request_and_recipe_pairing(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        pending_request = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": "REQ-2026-001",
+                "wipId": "SMP-001",
+                "equipmentId": "EQ-SEM-01",
+                "recipeId": "RCP-001",
+            },
+        )
+        assert pending_request.status_code == 409
+        assert "Cannot dispatch request in status pending_approval" in pending_request.json()["error"]
+
+        wrong_recipe = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-SEM-01",
+                "recipeId": "RCP-002",
+            },
+        )
+        assert wrong_recipe.status_code == 409
+        assert wrong_recipe.json()["error"] == "Recipe does not belong to selected equipment"
+
+        alarm_machine = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-PROBE-04",
+                "recipeId": "RCP-001",
+            },
+        )
+        assert alarm_machine.status_code == 409
+        assert alarm_machine.json()["error"] == "Equipment is not dispatchable"
+
+
+@pytest.mark.anyio
+async def test_job_actions_enforce_state_transitions(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        unload_missing_load = await client.post(
+            "/api/dispatch-jobs/JOB-2026-001/unload",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={},
+        )
+        assert unload_missing_load.status_code == 200
+
+        load_completed = await client.post(
+            "/api/dispatch-jobs/JOB-2026-001/load",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={},
+        )
+        assert load_completed.status_code == 409
+        assert "Cannot load job in status completed" in load_completed.json()["error"]
+
+
+@pytest.mark.anyio
 async def test_admin_can_manage_recipes_but_operator_cannot(tmp_path):
     transport = httpx.ASGITransport(app=make_app(tmp_path))
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -216,4 +325,3 @@ async def test_alarm_can_be_simulated_and_acknowledged_by_operator(tmp_path):
 
         acknowledged = await json_request(client, "POST", f"/api/alarms/{alarm['id']}/ack", token=token, json={})
         assert acknowledged["state"]["alarms"][0]["status"] == "closed"
-

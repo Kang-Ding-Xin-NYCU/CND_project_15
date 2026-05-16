@@ -23,6 +23,8 @@ from .config import (
 from .dashboard import create_dashboard
 from .domain import (
     add_audit,
+    assert_job_status,
+    assert_request_status,
     dispatchable_items,
     equipment_name,
     job_by_id,
@@ -291,17 +293,20 @@ def create_app(store: Any | None = None) -> FastAPI:
 
             actor = body.get("actor") or "Lab Operator"
             if action == "approve":
+                assert_request_status(current_request, ("pending_approval",), "approve")
                 current_request["status"] = "approved"
                 add_audit(state, f"{current_request['id']} approved", body.get("actor") or "Lab Supervisor")
                 return {"message": f"{current_request['id']} approved"}
 
             if action == "reject":
+                assert_request_status(current_request, ("pending_approval",), "reject")
                 current_request["status"] = "rejected"
                 current_request["rejectReason"] = body.get("reason") or "Rejected by supervisor"
                 add_audit(state, f"{current_request['id']} rejected", body.get("actor") or "Lab Supervisor")
                 return {"message": f"{current_request['id']} rejected"}
 
             if action == "receive":
+                assert_request_status(current_request, ("approved",), "receive")
                 current_request["status"] = "received"
                 current_request["receivedAt"] = now_text()
                 for sample in current_request["samples"]:
@@ -310,6 +315,7 @@ def create_app(store: Any | None = None) -> FastAPI:
                 return {"message": f"{current_request['id']} received"}
 
             if action == "split":
+                assert_request_status(current_request, ("received",), "split")
                 source = current_request["samples"][0] if current_request["samples"] else None
                 if not source:
                     raise ApiError("No sample to split", 409)
@@ -345,6 +351,7 @@ def create_app(store: Any | None = None) -> FastAPI:
                 )
                 return {"message": f"{current_request['id']} split into WIP"}
 
+            assert_request_status(current_request, ("completed", "in_progress"), "close")
             current_request["status"] = "closed"
             current_request["closedAt"] = now_text()
             add_audit(state, f"{current_request['id']} closed", actor)
@@ -364,10 +371,15 @@ def create_app(store: Any | None = None) -> FastAPI:
             recipe = recipe_by_id(state, body["recipeId"])
             if not current_request or not machine or not recipe:
                 raise ApiError("Request, equipment, or recipe not found", 404)
+            assert_request_status(current_request, ("received", "split"), "dispatch")
             if not any(item["id"] == body["wipId"] for item in dispatchable_items(current_request)):
                 raise ApiError("Selected WIP/sample does not belong to request", 409)
             if machine["status"] in ["maintenance", "alarm"]:
                 raise ApiError("Equipment is not dispatchable", 409)
+            if recipe.get("equipmentId") != machine["id"]:
+                raise ApiError("Recipe does not belong to selected equipment", 409)
+            if recipe.get("active") is False:
+                raise ApiError("Recipe is inactive", 409)
 
             job_id = f"JOB-2026-{state['jobSeq']:03d}"
             state["jobSeq"] += 1
@@ -414,6 +426,7 @@ def create_app(store: Any | None = None) -> FastAPI:
             actor = body.get("actor") or job.get("operator") or "Lab Operator"
 
             if action == "load":
+                assert_job_status(job, ("queued",), "load")
                 job["status"] = "running"
                 job.setdefault("history", []).append({"action": "load", "actor": actor, "occurredAt": now_text(), "note": "Loaded"})
                 if machine:
@@ -425,6 +438,7 @@ def create_app(store: Any | None = None) -> FastAPI:
                 add_audit(state, f"{job['id']} loaded", actor)
                 return {"message": f"{job['id']} loaded"}
 
+            assert_job_status(job, ("running", "loaded"), "unload")
             job["status"] = "completed"
             job.setdefault("history", []).append({"action": "unload", "actor": actor, "occurredAt": now_text(), "note": "Unloaded"})
             if machine:

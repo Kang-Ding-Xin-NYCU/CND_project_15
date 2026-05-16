@@ -23,6 +23,13 @@ python3 -m venv ../.venv
 ../.venv/bin/python -m pytest tests
 ```
 
+After creating the root `.venv`, the backend npm scripts also work without any `wsl` wrapper:
+
+```bash
+npm test
+npm start
+```
+
 ## Run locally
 
 From `backend/`:

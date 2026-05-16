@@ -17,6 +17,11 @@ const contentTypes = {
   ".js": "application/javascript; charset=utf-8"
 };
 
+function isInsideStaticRoot(resolvedPath) {
+  const relativePath = path.relative(STATIC_ROOT, resolvedPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
 function sendConfig(res) {
   res.writeHead(200, {
     "Content-Type": "application/javascript; charset=utf-8",
@@ -29,7 +34,7 @@ function sendStatic(res, pathname) {
   const normalizedPath = pathname === "/" ? "/index.html" : pathname;
   const resolvedPath = path.resolve(STATIC_ROOT, `.${decodeURIComponent(normalizedPath)}`);
 
-  if (!resolvedPath.startsWith(STATIC_ROOT)) {
+  if (!isInsideStaticRoot(resolvedPath)) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Forbidden");
     return;
@@ -60,24 +65,43 @@ function loadTlsOptions() {
 
 function requestHandler(req, res) {
   const url = new URL(req.url, "http://localhost");
-  if (url.pathname === "/config.js") {
-    sendConfig(res);
-    return;
-  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     res.writeHead(405, { "Content-Type": "text/plain; charset=utf-8" });
     res.end("Method not allowed");
     return;
   }
+  if (url.pathname === "/config.js") {
+    sendConfig(res);
+    return;
+  }
   sendStatic(res, url.pathname);
 }
 
-const server = HTTPS_ENABLED
-  ? https.createServer(loadTlsOptions(), requestHandler)
-  : http.createServer(requestHandler);
+function createServer() {
+  return HTTPS_ENABLED
+    ? https.createServer(loadTlsOptions(), requestHandler)
+    : http.createServer(requestHandler);
+}
 
-server.listen(PORT, () => {
-  const protocol = HTTPS_ENABLED ? "https" : "http";
-  console.log(`Cloud LIMS frontend listening on ${protocol}://localhost:${PORT}/`);
-  console.log(`Frontend API base URL: ${API_BASE_URL}`);
-});
+function startServer() {
+  const server = createServer();
+  server.listen(PORT, () => {
+    const protocol = HTTPS_ENABLED ? "https" : "http";
+    console.log(`Cloud LIMS frontend listening on ${protocol}://localhost:${PORT}/`);
+    console.log(`Frontend API base URL: ${API_BASE_URL}`);
+  });
+  return server;
+}
+
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = {
+  createServer,
+  isInsideStaticRoot,
+  requestHandler,
+  sendConfig,
+  sendStatic,
+  startServer
+};

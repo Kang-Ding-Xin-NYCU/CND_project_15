@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "wsl ../.venv/bin/python -m app.main",
-    "test": "wsl ../.venv/bin/python -m pytest tests"
+    "start": "../.venv/bin/python -m app.main",
+    "test": "../.venv/bin/python -m pytest tests"
   }
 }
