@@ -55,7 +55,7 @@
 | --- | --- | --- | --- |
 | Docker healthcheck | A | `backend/Dockerfile`, `frontend/Dockerfile` | image 內可自我健康檢查 |
 | Compose restart policy | A | `docker-compose.yml` | backend/frontend/mongo/redis 有 restart policy |
-| K8s manifests | A | `k8s/` | 至少有 backend/frontend Deployment、Service、ConfigMap、Secret 範本 |
+| K8s manifests hardening | A | `k8s/` | 已有本機 manifests；下一步補 ingress / namespace / resource limits / production Secret 流程 |
 | Readiness/Liveness 說明 | A | `docs/future-optimization-and-workplan.md` 或 `docs/deployment-runbook.md` | 說明 K8s 如何判斷服務可用 |
 | Runbook | A | `docs/` | 包含啟動、停止、重建、清資料、常見錯誤 |
 
@@ -81,13 +81,15 @@
 
 - Dockerfile healthcheck。參考檔案：`backend/Dockerfile`, `frontend/Dockerfile`。
 - `docker-compose.yml` restart policy 與 service dependency 說明。參考檔案：`docker-compose.yml`。
-- K8s manifests：
+- K8s manifests 與後續 hardening：
   - `k8s/backend-deployment.yaml`
   - `k8s/backend-service.yaml`
   - `k8s/frontend-deployment.yaml`
   - `k8s/frontend-service.yaml`
   - `k8s/configmap.yaml`
   - `k8s/secret.example.yaml`
+  - `k8s/mongo.yaml`
+  - `k8s/redis.yaml`
 - CI/CD 說明與部署 runbook。參考檔案：`.github/workflows/ci.yml`, `README.md`, `docs/current-system-architecture.md`。
 
 驗收：

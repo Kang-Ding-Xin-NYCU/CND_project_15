@@ -37,6 +37,7 @@ docker compose version
 - `docs/current-system-architecture.md`：目前已實作的系統架構、API、資料儲存、測試與限制。
 - `docs/future-optimization-and-workplan.md`：未來優化 roadmap 與五人分工。
 - `docker-compose.yml`：同時啟動 frontend 與 backend 的容器化設定。
+- `k8s/`：本機 Kubernetes demo manifests，包含 frontend、backend、MongoDB、Redis。
 
 ## 使用方式
 
@@ -135,3 +136,56 @@ docker compose up --build
 前端服務：`https://localhost:8080/`
 
 後端 API：`https://localhost:3443/api/health`
+
+## Kubernetes 本機 Demo
+
+本專案也提供 `k8s/` manifests，可用 Minikube 或 kind 在本機跑 frontend、backend、MongoDB、Redis。Kubernetes demo 使用 HTTP 方便 port-forward；Docker Compose 仍使用本機自簽 HTTPS。
+
+Minikube 範例：
+
+```bash
+minikube start
+eval $(minikube docker-env)
+docker build -t lims-backend:local ./backend
+docker build -t lims-frontend:local ./frontend
+kubectl apply -f k8s/
+```
+
+kind 範例：
+
+```bash
+kind create cluster
+docker build -t lims-backend:local ./backend
+docker build -t lims-frontend:local ./frontend
+kind load docker-image lims-backend:local
+kind load docker-image lims-frontend:local
+kubectl apply -f k8s/
+```
+
+確認部署：
+
+```bash
+kubectl get pods
+kubectl get svc
+kubectl rollout status deployment/backend
+kubectl rollout status deployment/frontend
+```
+
+本機開啟服務：
+
+```bash
+kubectl port-forward svc/backend 3000:3000
+kubectl port-forward svc/frontend 8080:8080
+```
+
+前端服務：`http://localhost:8080/`
+
+後端 API：`http://localhost:3000/api/health`
+
+`k8s/secret.example.yaml` 內的 `JWT_SECRET` 只供本機 demo 使用；正式環境請改成自己的 Secret 管理流程。
+
+驗證 manifests：
+
+```bash
+kubectl apply --dry-run=client -f k8s/
+```
