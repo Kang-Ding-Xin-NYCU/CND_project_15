@@ -7,8 +7,8 @@
 | 成員 | 角色 | 主責 | 主要參考檔案 |
 | --- | --- | --- | --- |
 | A | Docker + K8s / DevOps | Docker、Compose、K8s manifests、CI/CD、healthcheck、部署文件 | `docker-compose.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, `.github/workflows/ci.yml`, `README.md`, `docs/current-system-architecture.md`, `docs/future-optimization-and-workplan.md` |
-| B | Backend 1 - Workflow / RBAC | Request/Approval/Sample/WIP/Dispatch 狀態流程、RBAC、Audit | `backend/app/main.py`, `backend/app/domain.py`, `backend/app/auth.py`, `backend/app/seed.py`, `backend/tests/test_api.py` |
-| C | Backend 2 - Equipment / Recipe / Machine Event | Equipment、Recipe version、Machine Event、Result、Alarm | `backend/app/main.py`, `backend/app/dashboard.py`, `backend/app/store.py`, `backend/tests/test_api.py` |
+| B | Backend 1 - Workflow / RBAC | Request/Approval/Sample/WIP/Dispatch 狀態流程、RBAC、Audit | `backend/app/routes/requests.py`, `backend/app/routes/jobs.py`, `backend/app/services/request_service.py`, `backend/app/services/dispatch_service.py`, `backend/app/domain.py`, `backend/app/auth.py`, `backend/app/seed.py`, `backend/tests/test_api.py` |
+| C | Backend 2 - Equipment / Recipe / Machine Event | Equipment、Recipe version、Machine Event、Result、Alarm | `backend/app/routes/equipment.py`, `backend/app/routes/recipes.py`, `backend/app/routes/alarms.py`, `backend/app/routes/results.py`, `backend/app/services/equipment_service.py`, `backend/app/services/recipe_service.py`, `backend/app/services/alarm_service.py`, `backend/app/dashboard.py`, `backend/app/store.py`, `backend/tests/test_api.py` |
 | D | Frontend 1 - Workflow UI / UX | 登入、角色權限 UI、委託/簽核/收件/手動分貨流程 | `frontend/index.html`, `frontend/app.js`, `frontend/styles.css`, `frontend/tests/` |
 | E | Frontend 2 - Dashboard / Quality | Dashboard、結果/告警頁、RWD、XSS escape、frontend tests | `frontend/index.html`, `frontend/app.js`, `frontend/styles.css`, `frontend/tests/server.test.js`, `frontend/server.js` |
 
@@ -17,8 +17,8 @@
 | 評分項目 | 主要負責 | 目前狀態 | 下一步 |
 | --- | --- | --- | --- |
 | 需求轉換與實作 | B, C, D, E | 核心閉環已完成 | 手動分貨、Machine Event、Recipe version、Dashboard 強化 |
-| 程式碼品質 | 全員 | 已有 pytest/Node tests | 拆 backend routes、補 lint/format、前端 XSS escape |
-| 架構設計與可擴展性 | A, B, C | 有 Docker Compose 與 modular monolith | K8s manifests、route 分層、event-oriented extension |
+| 程式碼品質 | 全員 | 已有 pytest/Node tests；後端已分 routes/ + services/ 層 | 補 lint/format、前端 XSS escape |
+| 架構設計與可擴展性 | A, B, C | Docker Compose、modular monolith、router/service/domain/repository 四層 | K8s manifests、event-oriented extension |
 | 系統測試與驗證 | B, C, D, E | `npm test` 已跑 backend + frontend | 各自負責自己功能的測試，D/E 補 frontend tests |
 | 運維與可靠性 | A 主責，全員支援 | CI 與 health API 已有 | Docker healthcheck、restart policy、metrics、runbook |
 
@@ -32,7 +32,7 @@
 | --- | --- | --- | --- |
 | 移除或鎖定登入後角色切換 | D | `frontend/app.js`, `frontend/index.html` | UI 顯示角色與 JWT user role 一致 |
 | 前端 XSS escape | E | `frontend/app.js`, `frontend/tests/` | 所有使用者輸入顯示前都 escape；補 frontend test |
-| 補 request/job 狀態錯誤訊息整理 | B | `backend/app/domain.py`, `backend/app/main.py` | 錯誤訊息可讀、測試通過 |
+| 補 request/job 狀態錯誤訊息整理 | B | `backend/app/domain.py`, `backend/app/services/request_service.py`, `backend/app/services/dispatch_service.py` | 錯誤訊息可讀、測試通過 |
 | 更新 demo script | A, D, E | `README.md`, `docs/` | 任何組員照 script 可完成展示 |
 
 ### Phase 2：補 LIMS 核心進階需求
@@ -41,11 +41,11 @@
 
 | 項目 | 負責 | 檔案 | 驗收標準 |
 | --- | --- | --- | --- |
-| 手動 WIP 分貨 | B, D | `backend/app/main.py`, `frontend/app.js`, `frontend/index.html` | 可輸入多筆 WIP，總量不得超過 sample quantity |
-| 派貨規則細化 | B | `backend/app/main.py`, `backend/tests/test_api.py` | 不可派已處理 WIP；不可重複派貨同一 item |
-| Recipe version / deactivate | C, E | `backend/app/main.py`, `frontend/app.js` | 可停用舊版，只允許 active recipe 派貨 |
-| Machine Event API | C | `backend/app/main.py` 或 `backend/app/routes/machine_events.py` | `completed` event 自動完成 job；`alarm` event 自動建告警 |
-| 結果查詢強化 | C, E | `backend/app/main.py`, `frontend/app.js` | 可查單筆 result，前端可顯示 raw data/report metadata |
+| 手動 WIP 分貨 | B, D | `backend/app/routes/requests.py`, `backend/app/services/request_service.py`, `frontend/app.js`, `frontend/index.html` | 可輸入多筆 WIP，總量不得超過 sample quantity |
+| 派貨規則細化 | B | `backend/app/services/dispatch_service.py`, `backend/tests/test_api.py` | 不可派已處理 WIP；不可重複派貨同一 item |
+| Recipe version / deactivate | C, E | `backend/app/routes/recipes.py`, `backend/app/services/recipe_service.py`, `frontend/app.js` | 可停用舊版，只允許 active recipe 派貨 |
+| Machine Event API | C | 新增 `backend/app/routes/machine_events.py` + `backend/app/services/machine_event_service.py` | `completed` event 自動完成 job；`alarm` event 自動建告警 |
+| 結果查詢強化 | C, E | `backend/app/routes/results.py`, `frontend/app.js` | 可查單筆 result，前端可顯示 raw data/report metadata |
 
 ### Phase 3：雲原生部署與可靠性
 
@@ -68,7 +68,7 @@
 | Backend tests 擴充 | B, C | `backend/tests/test_api.py` | 覆蓋 manual split、recipe inactive、machine event |
 | Frontend tests 擴充 | D, E | `frontend/tests/` | 覆蓋 XSS escape、role UI、render helper |
 | Dashboard metrics | C, E | `backend/app/dashboard.py`, `frontend/app.js` | 顯示 request status、operator actions、equipment utilization |
-| Structured logs | A, B, C | `backend/app/main.py` | API error 與重要 action 有一致格式 |
+| Structured logs | A, B, C | `backend/app/main.py`（middleware）、`backend/app/services/` | API error 與重要 action 有一致格式 |
 | 文件一致性檢查 | A, D, E | `README.md`, `docs/` | 文件不再出現過期路徑或舊技術棧 |
 
 ## 4. 個人工作包
@@ -103,15 +103,18 @@
 
 負責項目：
 
-- 手動 WIP 分貨 API。參考檔案：`backend/app/main.py`, `backend/app/domain.py`。
-- Request/job 狀態轉換規則。參考檔案：`backend/app/domain.py`, `backend/app/main.py`。
-- 派貨 item 狀態規則。參考檔案：`backend/app/main.py`, `backend/tests/test_api.py`。
+- 手動 WIP 分貨 API。參考檔案：`backend/app/routes/requests.py`, `backend/app/services/request_service.py`, `backend/app/domain.py`。
+- Request/job 狀態轉換規則。參考檔案：`backend/app/domain.py`, `backend/app/services/request_service.py`, `backend/app/services/dispatch_service.py`。
+- 派貨 item 狀態規則。參考檔案：`backend/app/services/dispatch_service.py`, `backend/tests/test_api.py`。
 - Audit log 欄位強化，例如 action、targetType、targetId、actor。參考檔案：`backend/app/domain.py`, `backend/app/store.py`。
 - RBAC 測試補齊。參考檔案：`backend/app/auth.py`, `backend/tests/test_api.py`。
 
 建議檔案：
 
-- `backend/app/main.py`
+- `backend/app/routes/requests.py`
+- `backend/app/routes/jobs.py`
+- `backend/app/services/request_service.py`
+- `backend/app/services/dispatch_service.py`
 - `backend/app/domain.py`
 - `backend/tests/test_api.py`
 
@@ -129,18 +132,19 @@
 
 負責項目：
 
-- Recipe version / deactivate API。參考檔案：`backend/app/main.py`, `backend/tests/test_api.py`。
-- inactive recipe 不可派貨。參考檔案：`backend/app/main.py`, `backend/tests/test_api.py`。
-- Machine Event API：
+- Recipe version / deactivate API。參考檔案：`backend/app/routes/recipes.py`, `backend/app/services/recipe_service.py`, `backend/tests/test_api.py`。
+- inactive recipe 不可派貨。參考檔案：`backend/app/services/dispatch_service.py`, `backend/tests/test_api.py`。
+- Machine Event API：新增 `backend/app/routes/machine_events.py` + `backend/app/services/machine_event_service.py`，事件型別：
   - `completed`
   - `alarm`
   - `measurement`
-- Result metadata 強化。參考檔案：`backend/app/main.py`, `backend/app/store.py`。
-- Alarm rule threshold。參考檔案：`backend/app/main.py`, `backend/tests/test_api.py`。
+- Result metadata 強化。參考檔案：`backend/app/routes/results.py`, `backend/app/services/dispatch_service.py`, `backend/app/store.py`。
+- Alarm rule threshold。參考檔案：`backend/app/services/alarm_service.py`, `backend/app/services/equipment_service.py`, `backend/tests/test_api.py`。
 
 建議檔案：
 
-- `backend/app/main.py`
+- `backend/app/routes/recipes.py`, `backend/app/routes/results.py`, `backend/app/routes/alarms.py`, `backend/app/routes/equipment.py`
+- `backend/app/services/recipe_service.py`, `backend/app/services/alarm_service.py`, `backend/app/services/equipment_service.py`
 - `backend/app/dashboard.py`
 - `backend/tests/test_api.py`
 
@@ -185,9 +189,9 @@
 
 - XSS escape。參考檔案：`frontend/app.js`, `frontend/tests/`。
 - Dashboard 圖表強化。參考檔案：`frontend/app.js`, `frontend/index.html`, `frontend/styles.css`, `backend/app/dashboard.py`。
-- 結果管理頁強化。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/main.py`。
-- 告警頁強化。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/main.py`。
-- Recipe version / deactivate UI。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/main.py`。
+- 結果管理頁強化。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/routes/results.py`。
+- 告警頁強化。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/routes/alarms.py`。
+- Recipe version / deactivate UI。參考檔案：`frontend/app.js`, `frontend/index.html`, `backend/app/routes/recipes.py`。
 - RWD 與文字不爆版。參考檔案：`frontend/styles.css`, `frontend/index.html`。
 - Frontend tests。參考檔案：`frontend/tests/server.test.js`, `frontend/server.js`；需要測 UI helper 時可新增 `frontend/tests/app.test.js`。
 

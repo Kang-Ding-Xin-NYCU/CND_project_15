@@ -80,19 +80,21 @@ flowchart TB
 
 ## 3. Application Architecture
 
-依照 L06 對 Application Architecture 的定義，這一層描述單一應用或子系統內部如何分層，重點是可維護性、可擴充性、可測試性與低耦合高內聚。此專案目前採前後端分離與後端輕量分層；API route 與 use case orchestration 仍集中在 `backend/app/main.py`，後續功能增加時應拆出 application service / route modules。
+依照 L06 對 Application Architecture 的定義，這一層描述單一應用或子系統內部如何分層，重點是可維護性、可擴充性、可測試性與低耦合高內聚。此專案採前後端分離，後端分為 **router → service → domain → repository** 四層：[backend/app/routes/](../backend/app/routes/) 只處理 HTTP（path / body 解析 / `require_roles` / status code）、[backend/app/services/](../backend/app/services/) 是 HTTP-agnostic 的 use case orchestration、[backend/app/domain.py](../backend/app/domain.py) 是 entity lookup 與狀態 assert 的 pure helper、[backend/app/store.py](../backend/app/store.py) 是 JSON / MongoDB repository。[backend/app/main.py](../backend/app/main.py) 只負責 app factory、middleware、錯誤處理與 router 註冊。
 
 ```mermaid
 flowchart TB
   subgraph Presentation["Presentation / I-O Layer"]
     UI["frontend/index.html + app.js<br/>single page UI<br/>rendering, form handlers, API client"]
     StaticServer["frontend/server.js<br/>HTTPS static server<br/>/config.js runtime API base URL"]
-    API["backend/app/main.py<br/>FastAPI routes, middleware<br/>request validation, response mapping"]
+    AppFactory["backend/app/main.py<br/>FastAPI app factory<br/>CORS / JWT middleware / error handlers"]
+    HttpUtils["backend/app/http_utils.py<br/>body parsing, validation,<br/>json_error, cache_hit"]
+    Routes["backend/app/routes/<br/>health / auth / state /<br/>requests / jobs / equipment /<br/>recipes / results / alarms<br/>(HTTP only: path, body, status code, require_roles)"]
   end
 
   subgraph Application["Application Service / Use Case Layer"]
-    UseCases["LIMS use cases<br/>login / create request / approve / reject<br/>receive / split / dispatch / load / unload<br/>recipe / alarm / reset"]
-    Auth["backend/app/auth.py<br/>JWT, password hash, RBAC"]
+    Services["backend/app/services/<br/>auth / state / request /<br/>dispatch / equipment / recipe / alarm<br/>(HTTP-agnostic use case orchestration)"]
+    Auth["backend/app/auth.py<br/>JWT, password hash, RBAC helper"]
     Dashboard["backend/app/dashboard.py<br/>dashboard aggregation"]
   end
 
@@ -112,20 +114,22 @@ flowchart TB
   end
 
   UI --> StaticServer
-  UI -->|"REST JSON"| API
-  API --> UseCases
-  API --> Auth
-  UseCases --> DomainHelpers
-  UseCases --> Dashboard
+  UI -->|"REST JSON"| AppFactory
+  AppFactory --> Routes
+  Routes --> HttpUtils
+  Routes --> Auth
+  Routes --> Services
+  Services --> DomainHelpers
+  Services --> Dashboard
+  Services --> Store
   DomainHelpers --> Entities
   Dashboard --> Entities
-  UseCases --> Store
   Auth --> Cache
   Store --> Cache
   Store --> MongoDB
   Store -. local fallback .-> JsonFile
   Cache --> RedisDB
-  Config --> API
+  Config --> AppFactory
   Config --> Store
   Config --> Cache
   Seed --> Store
@@ -135,8 +139,8 @@ flowchart TB
 
 | L06 分層 | 目前對應檔案 | 職責 |
 | --- | --- | --- |
-| Presentation / Controller | `frontend/index.html`, `frontend/app.js`, `frontend/server.js`, `backend/app/main.py` routes | UI render、表單操作、HTTP request/response、payload validation、錯誤回應 |
-| Application Service | `backend/app/main.py` route handlers, `backend/app/dashboard.py` | 編排 LIMS use case 流程，例如開單、簽核、收件、分貨、派貨、上下貨、告警 |
+| Presentation / Controller | `frontend/index.html`, `frontend/app.js`, `frontend/server.js`, `backend/app/main.py` (app factory + middleware), `backend/app/routes/`, `backend/app/http_utils.py` | UI render、表單操作、HTTP request/response、payload parsing/validation、status code、`require_roles` |
+| Application Service | `backend/app/services/` (auth / state / request / dispatch / equipment / recipe / alarm), `backend/app/dashboard.py` | 編排 LIMS use case 流程：開單、簽核、收件、分貨、派貨、上下貨、recipe、告警；不知道 HTTP |
 | Domain | `backend/app/domain.py`, `backend/app/seed.py` 的 domain state | 委託單與 job 狀態規則、entity lookup、audit、sample/WIP 狀態變更 |
 | Repository / Persistence | `backend/app/store.py` | 封裝 JSON / MongoDB persistence、collection layout、migration、cache invalidation |
 | Infrastructure | `backend/app/cache.py`, `backend/app/config.py`, Docker Compose | Redis、環境設定、TLS、port、container backing services |
@@ -145,26 +149,46 @@ flowchart TB
 ### Application Architecture 現況判斷
 
 - 已做到前後端分離、REST API、JWT/RBAC、store abstraction、Redis/Noop cache abstraction，測試可直接注入 JSON store。
-- 目前 `backend/app/main.py` 同時承擔 controller 與 application service，對 MVP 可接受；若功能增加，應把 requests、dispatch jobs、equipment、recipes、alarms 拆成 route module 與 service module。
-- Domain rule 已開始集中到 `domain.py`，但狀態轉換仍有不少邏輯在 route handler。下一步可抽出 `RequestService`、`DispatchService`、`AlarmService`，讓 domain rule 與 persistence boundary 更清楚。
+- 後端已從單一 `main.py` 拆成 `routes/`（HTTP）+ `services/`（business logic）兩個 package，`main.py` 只剩 app factory、middleware、錯誤處理與 router 註冊。多人並行開發時不會集中改同一檔案。
+- Service 函式都接 `store` 與具名參數、回 dict、違反規則 raise `ApiError`，將來要加 CLI、機台 event collector 或 background worker 都可直接呼叫 service，不需經 HTTP。
+- 後續若進一步演進，可考慮把 service 內共用的查詢函式（例如 `request_by_id` + 狀態檢查組合）獨立成 application service base，或把 audit log 抽成 cross-cutting middleware。
 
 ## 4. 程式結構
 
 ```text
 backend/
   app/
-    main.py          FastAPI app factory 與目前所有 API routes
-    auth.py          JWT、password hash、Bearer token、RBAC helper
-    cache.py         Redis / Noop cache abstraction
-    config.py        env var 與 TLS / port / DB 設定
-    dashboard.py     dashboard aggregation
-    domain.py        entity lookup、audit、狀態驗證 helper
-    errors.py        API error type
-    seed.py          demo users 與初始資料
-    store.py         JSON store / MongoDB store / migration
+    main.py            FastAPI app factory、CORS / JWT middleware、錯誤處理、router 註冊
+    http_utils.py      body 解析、欄位驗證、json_error、cache_hit 等 HTTP 共用 helper
+    auth.py            JWT、password hash、Bearer token、RBAC helper
+    cache.py           Redis / Noop cache abstraction
+    config.py          env var 與 TLS / port / DB 設定
+    dashboard.py       dashboard aggregation
+    domain.py          entity lookup、audit、狀態驗證 helper（pure helpers）
+    errors.py          API error type
+    seed.py            demo users 與初始資料
+    store.py           JSON store / MongoDB store / migration（repository）
+    routes/            HTTP layer：每個資源一個檔案
+      health.py        GET /api/health
+      auth.py          login / me / logout
+      state.py         state / dashboard / reset / audit / equipment GET
+      requests.py      委託單 list / create / approve|reject|receive|split|close
+      jobs.py          dispatch-jobs / history / load|unload
+      equipment.py     equipment status
+      recipes.py       recipe create
+      results.py       results list / get
+      alarms.py        alarms list / ack / simulate
+    services/          Application layer：HTTP-agnostic use case orchestration
+      auth_service.py
+      state_service.py
+      request_service.py
+      dispatch_service.py
+      equipment_service.py
+      recipe_service.py
+      alarm_service.py
   tests/
-    test_api.py      API/RBAC/流程/狀態規則測試
-    test_store.py    Mongo collection layout 與 legacy migration 測試
+    test_api.py        API/RBAC/流程/狀態規則測試
+    test_store.py      Mongo collection layout 與 legacy migration 測試
 
 frontend/
   index.html         單頁 UI
@@ -296,4 +320,3 @@ Frontend tests：
 | 機台自動化 | 尚未有 machine event collector API |
 | Observability | 目前只有 health check，尚無 metrics/log format/tracing |
 | Docker/K8s | 有 Docker Compose，尚未有 Docker healthcheck、restart policy、Kubernetes manifests |
-| Backend 架構 | API route 目前集中於 `backend/app/main.py`，功能增加後應拆 routes |
