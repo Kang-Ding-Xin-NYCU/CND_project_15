@@ -358,6 +358,9 @@ async def test_admin_can_deactivate_recipe_and_dispatch_rejects_inactive_recipe(
         assert rejected.status_code == 409
         assert rejected.json()["error"] == "Recipe is inactive"
 
+        dashboard = await json_request(client, "GET", "/api/dashboard", token=operator_token)
+        assert dashboard["recipeActiveCount"] == {"active": 2, "inactive": 1}
+
 
 @pytest.mark.anyio
 async def test_machine_completed_event_finishes_job_and_creates_result_metadata(tmp_path):
@@ -404,6 +407,23 @@ async def test_machine_completed_event_finishes_job_and_creates_result_metadata(
         dashboard = await json_request(client, "GET", "/api/dashboard", token=operator_token)
         assert dashboard["resultCount"] == 1
         assert dashboard["latestResults"][0]["id"] == result["id"]
+        assert dashboard["resultByEquipment"] == {"EQ-FTIR-03": 1}
+        assert dashboard["equipmentStatusCount"]["idle"] == 3
+        assert dashboard["alarmBySeverity"]["High"] == 1
+
+        result_by_request = await json_request(client, "GET", "/api/results?requestId=REQ-2026-003", token=operator_token)
+        result_by_job = await json_request(client, "GET", "/api/results?jobId=JOB-2026-001", token=operator_token)
+        result_by_equipment = await json_request(client, "GET", "/api/results?equipmentId=EQ-FTIR-03", token=operator_token)
+        result_by_recipe = await json_request(client, "GET", "/api/results?recipeId=RCP-003", token=operator_token)
+        result_mismatch = await json_request(client, "GET", "/api/results?equipmentId=EQ-SEM-01", token=operator_token)
+        single_result = await json_request(client, "GET", f"/api/results/{result['id']}", token=operator_token)
+
+        assert [item["id"] for item in result_by_request] == [result["id"]]
+        assert [item["id"] for item in result_by_job] == [result["id"]]
+        assert [item["id"] for item in result_by_equipment] == [result["id"]]
+        assert [item["id"] for item in result_by_recipe] == [result["id"]]
+        assert result_mismatch == []
+        assert single_result["metadata"]["equipmentId"] == "EQ-FTIR-03"
 
 
 @pytest.mark.anyio
@@ -472,3 +492,84 @@ async def test_machine_measurement_event_appends_history_and_threshold_alarm(tmp
         assert alarm["equipmentId"] == "EQ-FTIR-03"
         assert alarm["severity"] == "High"
         assert alarm["source"] == "threshold"
+
+
+@pytest.mark.anyio
+async def test_recipe_deactivate_returns_404_for_unknown_recipe(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        admin_token = await login(client, "admin")
+
+        response = await client.post(
+            "/api/recipes/RCP-999/deactivate",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"actor": "System Admin"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["error"] == "Recipe not found"
+
+
+@pytest.mark.anyio
+async def test_machine_event_rejects_invalid_contracts(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+        headers = {"Authorization": f"Bearer {operator_token}"}
+
+        invalid_type = await client.post(
+            "/api/machine-events",
+            headers=headers,
+            json={"equipmentId": "EQ-FTIR-03", "eventType": "started", "payload": {}},
+        )
+        assert invalid_type.status_code == 400
+        assert invalid_type.json()["error"] == "eventType must be one of: completed, alarm, measurement"
+
+        invalid_payload = await client.post(
+            "/api/machine-events",
+            headers=headers,
+            json={"equipmentId": "EQ-FTIR-03", "eventType": "alarm", "payload": ["not", "an", "object"]},
+        )
+        assert invalid_payload.status_code == 400
+        assert invalid_payload.json()["error"] == "payload must be an object"
+
+        missing_job = await client.post(
+            "/api/machine-events",
+            headers=headers,
+            json={"equipmentId": "EQ-FTIR-03", "eventType": "completed", "payload": {}},
+        )
+        assert missing_job.status_code == 400
+        assert missing_job.json()["error"] == "jobId is required for completed events"
+
+        wrong_equipment = await client.post(
+            "/api/machine-events",
+            headers=headers,
+            json={
+                "equipmentId": "EQ-SEM-01",
+                "eventType": "measurement",
+                "jobId": "JOB-2026-001",
+                "payload": {},
+            },
+        )
+        assert wrong_equipment.status_code == 409
+        assert wrong_equipment.json()["error"] == "Job does not belong to selected equipment"
+
+
+@pytest.mark.anyio
+async def test_machine_completed_event_is_not_repeatable(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+        body = {
+            "equipmentId": "EQ-FTIR-03",
+            "eventType": "completed",
+            "jobId": "JOB-2026-001",
+            "payload": {},
+        }
+
+        first = await client.post("/api/machine-events", headers={"Authorization": f"Bearer {operator_token}"}, json=body)
+        second = await client.post("/api/machine-events", headers={"Authorization": f"Bearer {operator_token}"}, json=body)
+
+        assert first.status_code == 201
+        assert second.status_code == 409
+        assert "Cannot complete from machine event job in status completed" in second.json()["error"]
