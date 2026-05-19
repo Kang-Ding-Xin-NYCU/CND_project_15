@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -24,3 +25,14 @@ async def create_recipe(request: Request) -> JSONResponse:
         actor=str(body.get("actor") or "System Admin"),
     )
     return JSONResponse(result, status_code=201)
+
+
+@router.post("/{recipe_id}/deactivate")
+async def deactivate_recipe(recipe_id: str, request: Request) -> dict[str, Any]:
+    require_roles(request.state.user, "admin")
+    body = await read_json_body(request)
+    return recipe_service.deactivate_recipe(
+        request.app.state.store,
+        recipe_id=unquote(recipe_id),
+        actor=str(body.get("actor") or "System Admin"),
+    )

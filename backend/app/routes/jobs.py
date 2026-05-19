@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 
 @router.get("/jobs")
-def list_jobs(request: Request) -> list[dict[str, Any]]:
+async def list_jobs(request: Request) -> list[dict[str, Any]]:
     return request.app.state.store.read()["jobs"]
 
 
@@ -35,7 +35,7 @@ async def create_dispatch_job(request: Request) -> JSONResponse:
 
 
 @router.get("/dispatch-jobs/{job_id}/history")
-def dispatch_job_history(job_id: str, request: Request) -> dict[str, Any]:
+async def dispatch_job_history(job_id: str, request: Request) -> dict[str, Any]:
     return dispatch_service.job_history(request.app.state.store, job_id=unquote(job_id))
 
 

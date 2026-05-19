@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/alarms", tags=["alarms"])
 
 
 @router.get("")
-def list_alarms(request: Request) -> list[dict[str, Any]]:
+async def list_alarms(request: Request) -> list[dict[str, Any]]:
     return request.app.state.store.read()["alarms"]
 
 

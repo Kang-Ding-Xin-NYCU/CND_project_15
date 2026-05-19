@@ -325,3 +325,150 @@ async def test_alarm_can_be_simulated_and_acknowledged_by_operator(tmp_path):
 
         acknowledged = await json_request(client, "POST", f"/api/alarms/{alarm['id']}/ack", token=token, json={})
         assert acknowledged["state"]["alarms"][0]["status"] == "closed"
+
+
+@pytest.mark.anyio
+async def test_admin_can_deactivate_recipe_and_dispatch_rejects_inactive_recipe(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        admin_token = await login(client, "admin")
+        operator_token = await login(client, "operator")
+
+        deactivated = await json_request(
+            client,
+            "POST",
+            "/api/recipes/RCP-001/deactivate",
+            token=admin_token,
+            json={"actor": "System Admin"},
+        )
+        recipe = next(item for item in deactivated["state"]["recipes"] if item["id"] == "RCP-001")
+        assert recipe["active"] is False
+        assert deactivated["message"] == "RCP-001 deactivated"
+
+        rejected = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-SEM-01",
+                "recipeId": "RCP-001",
+            },
+        )
+        assert rejected.status_code == 409
+        assert rejected.json()["error"] == "Recipe is inactive"
+
+
+@pytest.mark.anyio
+async def test_machine_completed_event_finishes_job_and_creates_result_metadata(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        payload = await json_request(
+            client,
+            "POST",
+            "/api/machine-events",
+            token=operator_token,
+            json={
+                "equipmentId": "EQ-FTIR-03",
+                "eventType": "completed",
+                "jobId": "JOB-2026-001",
+                "actor": "FTIR-03",
+                "payload": {
+                    "rawUri": "s3://machine/ftir/JOB-2026-001.csv",
+                    "reportUri": "s3://machine/ftir/JOB-2026-001.pdf",
+                    "measurements": {"contamination": "pass"},
+                },
+            },
+        )
+
+        job = next(item for item in payload["state"]["jobs"] if item["id"] == "JOB-2026-001")
+        request_item = next(item for item in payload["state"]["requests"] if item["id"] == "REQ-2026-003")
+        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-03")
+        result = payload["state"]["results"][0]
+
+        assert payload["message"] == "event processed"
+        assert job["status"] == "completed"
+        assert request_item["status"] == "closed"
+        assert machine["status"] == "idle"
+        assert result["jobId"] == "JOB-2026-001"
+        assert result["rawData"] == "s3://machine/ftir/JOB-2026-001.csv"
+        assert result["report"] == "s3://machine/ftir/JOB-2026-001.pdf"
+        assert result["metadata"]["source"] == "machine_event.completed"
+        assert result["metadata"]["recipeVersion"] == "1.4.3"
+        assert result["metadata"]["payload"]["measurements"]["contamination"] == "pass"
+        assert result["rawDataMetadata"]["format"] == "csv"
+        assert result["reportMetadata"]["format"] == "pdf"
+
+        dashboard = await json_request(client, "GET", "/api/dashboard", token=operator_token)
+        assert dashboard["resultCount"] == 1
+        assert dashboard["latestResults"][0]["id"] == result["id"]
+
+
+@pytest.mark.anyio
+async def test_machine_alarm_event_creates_alarm_and_marks_equipment_alarm(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        payload = await json_request(
+            client,
+            "POST",
+            "/api/machine-events",
+            token=operator_token,
+            json={
+                "equipmentId": "EQ-SEM-01",
+                "eventType": "alarm",
+                "actor": "SEM-01",
+                "payload": {"severity": "Critical", "message": "Vacuum pressure over threshold"},
+            },
+        )
+
+        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-SEM-01")
+        alarm = payload["state"]["alarms"][0]
+        assert payload["message"] == "event processed"
+        assert machine["status"] == "alarm"
+        assert alarm["equipmentId"] == "EQ-SEM-01"
+        assert alarm["severity"] == "Critical"
+        assert alarm["message"] == "Vacuum pressure over threshold"
+        assert alarm["source"] == "machine_event"
+
+
+@pytest.mark.anyio
+async def test_machine_measurement_event_appends_history_and_threshold_alarm(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        payload = await json_request(
+            client,
+            "POST",
+            "/api/machine-events",
+            token=operator_token,
+            json={
+                "equipmentId": "EQ-FTIR-03",
+                "eventType": "measurement",
+                "jobId": "JOB-2026-001",
+                "actor": "FTIR-03",
+                "payload": {
+                    "metric": "chamberTemp",
+                    "value": 96,
+                    "threshold": 90,
+                    "unit": "C",
+                    "severity": "High",
+                },
+            },
+        )
+
+        job = next(item for item in payload["state"]["jobs"] if item["id"] == "JOB-2026-001")
+        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-03")
+        alarm = payload["state"]["alarms"][0]
+        assert payload["message"] == "event processed"
+        assert job["status"] == "running"
+        assert job["history"][-1]["action"] == "machine.measurement"
+        assert job["history"][-1]["payload"]["metric"] == "chamberTemp"
+        assert machine["status"] == "alarm"
+        assert alarm["equipmentId"] == "EQ-FTIR-03"
+        assert alarm["severity"] == "High"
+        assert alarm["source"] == "threshold"

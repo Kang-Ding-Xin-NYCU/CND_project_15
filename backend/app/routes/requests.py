@@ -21,7 +21,7 @@ _ACTION_ROLES = {
 
 
 @router.get("")
-def list_requests(request: Request) -> list[dict[str, Any]]:
+async def list_requests(request: Request) -> list[dict[str, Any]]:
     return request.app.state.store.read()["requests"]
 
 

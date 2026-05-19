@@ -20,10 +20,10 @@ async def login(request: Request) -> dict[str, Any]:
 
 
 @router.get("/me")
-def me(request: Request) -> dict[str, Any]:
+async def me(request: Request) -> dict[str, Any]:
     return {"user": request.state.user}
 
 
 @router.post("/logout")
-def logout(request: Request) -> dict[str, str]:
+async def logout(request: Request) -> dict[str, str]:
     return auth_service.logout(request.app.state.store, jti=request.state.user.get("jti"))

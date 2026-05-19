@@ -11,6 +11,8 @@ def create_dashboard(state: dict[str, Any]) -> dict[str, Any]:
         "pendingReceive": len([item for item in state["requests"] if item["status"] == "approved"]),
         "runningJobs": len([job for job in state["jobs"] if job["status"] in ["queued", "loaded", "running"]]),
         "activeAlarms": len([alarm for alarm in state["alarms"] if alarm["status"] == "alarm"]),
+        "resultCount": len(state["results"]),
+        "latestResults": state["results"][:5],
         "equipmentUtilization": [
             {
                 "id": machine["id"],
@@ -23,4 +25,3 @@ def create_dashboard(state: dict[str, Any]) -> dict[str, Any]:
         "requestByStatus": request_by_status,
         "operatorActions": state["audit"][:20],
     }
-

@@ -7,7 +7,7 @@ pass them through.
 
 from fastapi import FastAPI
 
-from . import alarms, auth, equipment, health, jobs, recipes, requests, results, state
+from . import alarms, auth, equipment, health, jobs, machine_events, recipes, requests, results, state
 
 
 def register_routers(app: FastAPI) -> None:
@@ -16,6 +16,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(state.router)
     app.include_router(requests.router)
     app.include_router(jobs.router)
+    app.include_router(machine_events.router)
     app.include_router(equipment.router)
     app.include_router(recipes.router)
     app.include_router(results.router)

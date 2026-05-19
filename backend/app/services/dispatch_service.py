@@ -17,6 +17,83 @@ from ..domain import (
 from ..errors import ApiError
 
 
+def complete_job_in_state(
+    state: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    actor: str,
+    action: str,
+    history_action: str,
+    history_note: str,
+    result_source: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    assert_job_status(job, ("running", "loaded"), action)
+
+    current_request = request_by_id(state, job["requestId"])
+    machine = machine_by_id(state, job["equipmentId"])
+    recipe = recipe_by_id(state, job["recipeId"]) or {}
+    effective_actor = actor or job.get("operator") or "Lab Operator"
+    completed_at = now_text()
+
+    job["status"] = "completed"
+    job.setdefault("history", []).append(
+        {"action": history_action, "actor": effective_actor, "occurredAt": completed_at, "note": history_note}
+    )
+    if machine:
+        machine["status"] = "idle"
+        machine["utilization"] = min(99, int(machine.get("utilization", 0)) + 5)
+    if current_request:
+        current_request["status"] = "closed"
+        current_request["closedAt"] = completed_at
+        set_item_status(current_request, job["wipId"], "processed")
+
+    result_id = f"RST-{job['id'].replace('JOB-', '')}"
+    if not any(result["id"] == result_id for result in state["results"]):
+        result_payload = payload or {}
+        raw_data_uri = str(
+            result_payload.get("rawData") or result_payload.get("rawUri") or f"s3://lims-demo/raw/{job['id']}.csv"
+        )
+        report_uri = str(
+            result_payload.get("report") or result_payload.get("reportUri") or f"s3://lims-demo/report/{job['requestId']}.pdf"
+        )
+        state["results"].insert(
+            0,
+            {
+                "id": result_id,
+                "requestId": job["requestId"],
+                "jobId": job["id"],
+                "summary": f"{equipment_name(state, job['equipmentId'])} finished {recipe_name(state, job['recipeId'])}",
+                "rawData": raw_data_uri,
+                "report": report_uri,
+                "metadata": {
+                    "source": result_source,
+                    "capturedBy": effective_actor,
+                    "equipmentId": job["equipmentId"],
+                    "equipmentName": equipment_name(state, job["equipmentId"]),
+                    "recipeId": job["recipeId"],
+                    "recipeName": recipe_name(state, job["recipeId"]),
+                    "recipeVersion": recipe.get("version", ""),
+                    "wipId": job.get("wipId", ""),
+                    "operator": job.get("operator", ""),
+                    "payload": result_payload,
+                },
+                "rawDataMetadata": {
+                    "uri": raw_data_uri,
+                    "format": str(result_payload.get("rawFormat") or "csv"),
+                    "capturedAt": completed_at,
+                },
+                "reportMetadata": {
+                    "uri": report_uri,
+                    "format": str(result_payload.get("reportFormat") or "pdf"),
+                    "generatedAt": completed_at,
+                },
+                "createdAt": completed_at,
+            },
+        )
+    add_audit(state, f"{job['id']} completed and result captured", effective_actor)
+
+
 def create_job(
     store: Any,
     *,
@@ -104,39 +181,15 @@ def unload_job(store: Any, *, job_id: str, actor: str) -> dict[str, Any]:
         job = job_by_id(state, job_id)
         if not job:
             raise ApiError("Job not found", 404)
-        assert_job_status(job, ("running", "loaded"), "unload")
-
-        current_request = request_by_id(state, job["requestId"])
-        machine = machine_by_id(state, job["equipmentId"])
-        effective_actor = actor or job.get("operator") or "Lab Operator"
-
-        job["status"] = "completed"
-        job.setdefault("history", []).append(
-            {"action": "unload", "actor": effective_actor, "occurredAt": now_text(), "note": "Unloaded"}
+        complete_job_in_state(
+            state,
+            job=job,
+            actor=actor,
+            action="unload",
+            history_action="unload",
+            history_note="Unloaded",
+            result_source="dispatch.unload",
         )
-        if machine:
-            machine["status"] = "idle"
-            machine["utilization"] = min(99, int(machine.get("utilization", 0)) + 5)
-        if current_request:
-            current_request["status"] = "closed"
-            current_request["closedAt"] = now_text()
-            set_item_status(current_request, job["wipId"], "processed")
-
-        result_id = f"RST-{job['id'].replace('JOB-', '')}"
-        if not any(result["id"] == result_id for result in state["results"]):
-            state["results"].insert(
-                0,
-                {
-                    "id": result_id,
-                    "requestId": job["requestId"],
-                    "jobId": job["id"],
-                    "summary": f"{equipment_name(state, job['equipmentId'])} finished {recipe_name(state, job['recipeId'])}",
-                    "rawData": f"s3://lims-demo/raw/{job['id']}.csv",
-                    "report": f"s3://lims-demo/report/{job['requestId']}.pdf",
-                    "createdAt": now_text(),
-                },
-            )
-        add_audit(state, f"{job['id']} unloaded and result captured", effective_actor)
         return {"message": f"{job['id']} completed"}
 
     return store.update(mutate)
