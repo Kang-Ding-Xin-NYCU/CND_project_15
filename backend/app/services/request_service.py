@@ -106,38 +106,54 @@ def receive(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
     return store.update(mutate)
 
 
-def split(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
+_WIP_SUFFIXES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def split(store: Any, *, request_id: str, actor: str, wips: list[dict[str, Any]]) -> dict[str, Any]:
     def mutate(state: dict[str, Any]) -> dict[str, Any]:
         current = _find_or_404(state, request_id)
         assert_request_status(current, ("received",), "split")
         source = current["samples"][0] if current["samples"] else None
         if not source:
             raise ApiError("No sample to split", 409)
+
+        if len(wips) < 1:
+            raise ApiError("At least one WIP is required", 400)
+        if len(wips) > len(_WIP_SUFFIXES):
+            raise ApiError(f"Cannot split into more than {len(_WIP_SUFFIXES)} WIPs", 400)
+
+        quantities: list[int] = []
+        for index, wip in enumerate(wips):
+            if not isinstance(wip, dict):
+                raise ApiError(f"wips[{index}] must be an object", 400)
+            try:
+                qty = int(wip.get("quantity"))
+            except (TypeError, ValueError) as exc:
+                raise ApiError(f"wips[{index}].quantity must be an integer", 400) from exc
+            if qty <= 0:
+                raise ApiError(f"wips[{index}].quantity must be greater than 0", 400)
+            quantities.append(qty)
+
+        sample_qty = int(source.get("quantity") or 0)
+        total_qty = sum(quantities)
+        if total_qty > sample_qty:
+            raise ApiError(
+                f"Total WIP quantity {total_qty} exceeds sample quantity {sample_qty}",
+                400,
+            )
+
         current["status"] = "split"
         source["status"] = "split"
-        if not current["wips"]:
-            total = max(1, int(source.get("quantity") or 1))
-            first_qty = 1 if total == 1 else total // 2
-            second_qty = total - first_qty
-            current["wips"] = [
-                {
-                    "id": f"{source['id']}-A",
-                    "source": source["id"],
-                    "quantity": first_qty,
-                    "purpose": f"{current['labType']} primary",
-                    "status": "queued",
-                }
-            ]
-            if second_qty > 0:
-                current["wips"].append(
-                    {
-                        "id": f"{source['id']}-B",
-                        "source": source["id"],
-                        "quantity": second_qty,
-                        "purpose": f"{current['labType']} backup",
-                        "status": "queued",
-                    }
-                )
+        current["wips"] = [
+            {
+                "id": f"{source['id']}-{_WIP_SUFFIXES[index]}",
+                "source": source["id"],
+                "quantity": quantities[index],
+                "purpose": str(wip.get("purpose") or f"{current['labType']} split"),
+                "status": "queued",
+            }
+            for index, wip in enumerate(wips)
+        ]
         add_audit(
             state,
             f"{current['id']} split into {', '.join(wip['id'] for wip in current['wips'])}",

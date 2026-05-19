@@ -76,5 +76,13 @@ async def request_action(request_id: str, action: str, request: Request) -> dict
     if action == "receive":
         return request_service.receive(request.app.state.store, request_id=target_id, actor=actor)
     if action == "split":
-        return request_service.split(request.app.state.store, request_id=target_id, actor=actor)
+        wips_body = body.get("wips", [])
+        if not isinstance(wips_body, list):
+            raise ApiError("wips must be an array", 400)
+        return request_service.split(
+            request.app.state.store,
+            request_id=target_id,
+            actor=actor,
+            wips=wips_body,
+        )
     return request_service.close(request.app.state.store, request_id=target_id, actor=actor)

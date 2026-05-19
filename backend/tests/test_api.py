@@ -114,7 +114,18 @@ async def test_request_can_move_through_full_lab_flow_with_rbac(tmp_path):
         payload = await json_request(client, "POST", f"/api/requests/{request_id}/receive", token=operator_token, json={})
         assert payload["state"]["requests"][0]["status"] == "received"
 
-        payload = await json_request(client, "POST", f"/api/requests/{request_id}/split", token=operator_token, json={})
+        payload = await json_request(
+            client,
+            "POST",
+            f"/api/requests/{request_id}/split",
+            token=operator_token,
+            json={
+                "wips": [
+                    {"quantity": 2, "purpose": "SEM primary"},
+                    {"quantity": 2, "purpose": "SEM backup"},
+                ]
+            },
+        )
         current_request = next(item for item in payload["state"]["requests"] if item["id"] == request_id)
         assert current_request["status"] == "split"
         assert len(current_request["wips"]) == 2
