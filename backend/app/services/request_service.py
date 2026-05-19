@@ -28,7 +28,14 @@ def create_request(store: Any, *, payload: dict[str, Any]) -> dict[str, Any]:
             "wips": [],
         }
         state["requests"].insert(0, new_request)
-        add_audit(state, f"{request_id} submitted by {new_request['requester']}", new_request["requester"])
+        add_audit(
+            state,
+            f"{request_id} submitted by {new_request['requester']}",
+            new_request["requester"],
+            action="request.create",
+            target_type="request",
+            target_id=request_id,
+        )
         return {"message": f"{request_id} submitted for approval"}
 
     return store.update(mutate)
@@ -46,7 +53,14 @@ def approve(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
         current = _find_or_404(state, request_id)
         assert_request_status(current, ("pending_approval",), "approve")
         current["status"] = "approved"
-        add_audit(state, f"{current['id']} approved", actor)
+        add_audit(
+            state,
+            f"{current['id']} approved",
+            actor,
+            action="request.approve",
+            target_type="request",
+            target_id=current["id"],
+        )
         return {"message": f"{current['id']} approved"}
 
     return store.update(mutate)
@@ -58,7 +72,14 @@ def reject(store: Any, *, request_id: str, actor: str, reason: str) -> dict[str,
         assert_request_status(current, ("pending_approval",), "reject")
         current["status"] = "rejected"
         current["rejectReason"] = reason or "Rejected by supervisor"
-        add_audit(state, f"{current['id']} rejected", actor)
+        add_audit(
+            state,
+            f"{current['id']} rejected",
+            actor,
+            action="request.reject",
+            target_type="request",
+            target_id=current["id"],
+        )
         return {"message": f"{current['id']} rejected"}
 
     return store.update(mutate)
@@ -72,7 +93,14 @@ def receive(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
         current["receivedAt"] = now_text()
         for sample in current["samples"]:
             sample["status"] = "received"
-        add_audit(state, f"{current['id']} received by lab", actor)
+        add_audit(
+            state,
+            f"{current['id']} received by lab",
+            actor,
+            action="request.receive",
+            target_type="request",
+            target_id=current["id"],
+        )
         return {"message": f"{current['id']} received"}
 
     return store.update(mutate)
@@ -114,6 +142,9 @@ def split(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
             state,
             f"{current['id']} split into {', '.join(wip['id'] for wip in current['wips'])}",
             actor,
+            action="request.split",
+            target_type="request",
+            target_id=current["id"],
         )
         return {"message": f"{current['id']} split into WIP"}
 
@@ -126,7 +157,14 @@ def close(store: Any, *, request_id: str, actor: str) -> dict[str, Any]:
         assert_request_status(current, ("completed", "in_progress"), "close")
         current["status"] = "closed"
         current["closedAt"] = now_text()
-        add_audit(state, f"{current['id']} closed", actor)
+        add_audit(
+            state,
+            f"{current['id']} closed",
+            actor,
+            action="request.close",
+            target_type="request",
+            target_id=current["id"],
+        )
         return {"message": f"{current['id']} closed"}
 
     return store.update(mutate)

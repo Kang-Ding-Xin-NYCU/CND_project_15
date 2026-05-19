@@ -8,8 +8,23 @@ def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def add_audit(state: dict[str, Any], message: str, actor: str = "System") -> None:
-    state["audit"].insert(0, {"message": message, "actor": actor, "occurredAt": now_text()})
+def add_audit(
+    state: dict[str, Any],
+    message: str,
+    actor: str = "System",
+    *,
+    action: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+) -> None:
+    row: dict[str, Any] = {"message": message, "actor": actor, "occurredAt": now_text()}
+    if action:
+        row["action"] = action
+    if target_type:
+        row["targetType"] = target_type
+    if target_id:
+        row["targetId"] = target_id
+    state["audit"].insert(0, row)
 
 
 def request_by_id(state: dict[str, Any], request_id: str) -> dict[str, Any] | None:

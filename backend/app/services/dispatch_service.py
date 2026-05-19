@@ -59,7 +59,14 @@ def create_job(
         state["jobs"].insert(0, job)
         current_request["status"] = "in_progress"
         set_item_status(current_request, wip_id, "queued")
-        add_audit(state, f"{current_request['id']} dispatched as {job_id} on {machine['name']}", operator)
+        add_audit(
+            state,
+            f"{current_request['id']} dispatched as {job_id} on {machine['name']}",
+            operator,
+            action="job.dispatch",
+            target_type="job",
+            target_id=job_id,
+        )
         return {"message": f"{job_id} dispatched"}
 
     return store.update(mutate)
@@ -93,7 +100,14 @@ def load_job(store: Any, *, job_id: str, actor: str) -> dict[str, Any]:
         if current_request:
             current_request["status"] = "in_progress"
             set_item_status(current_request, job["wipId"], "loaded")
-        add_audit(state, f"{job['id']} loaded", effective_actor)
+        add_audit(
+            state,
+            f"{job['id']} loaded",
+            effective_actor,
+            action="job.load",
+            target_type="job",
+            target_id=job["id"],
+        )
         return {"message": f"{job['id']} loaded"}
 
     return store.update(mutate)
@@ -136,7 +150,14 @@ def unload_job(store: Any, *, job_id: str, actor: str) -> dict[str, Any]:
                     "createdAt": now_text(),
                 },
             )
-        add_audit(state, f"{job['id']} unloaded and result captured", effective_actor)
+        add_audit(
+            state,
+            f"{job['id']} unloaded and result captured",
+            effective_actor,
+            action="job.unload",
+            target_type="job",
+            target_id=job["id"],
+        )
         return {"message": f"{job['id']} completed"}
 
     return store.update(mutate)
