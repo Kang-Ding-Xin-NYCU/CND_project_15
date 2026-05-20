@@ -113,6 +113,38 @@
               <div class="machine-grid" id="machineSummary"></div>
             </div>
           </div>
+
+          <div class="dashboard-triple-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Request Status</p>
+                  <h2>委託單狀態分佈</h2>
+                </div>
+              </div>
+              <div id="dashboardStatusChart" class="status-distribution"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Utilization</p>
+                  <h2>機台利用率</h2>
+                </div>
+              </div>
+              <div id="dashboardUtilization" class="chart-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Activity</p>
+                  <h2>操作歷程</h2>
+                </div>
+              </div>
+              <div id="dashboardTimeline" class="mini-timeline"></div>
+            </div>
+          </div>
         </section>
 
         <section id="requests" class="view">
@@ -351,6 +383,7 @@
                   <h2>結果管理</h2>
                 </div>
               </div>
+              <div id="resultStatBar"></div>
               <div id="resultList" class="stack-list"></div>
             </div>
 
@@ -373,6 +406,7 @@
               </div>
               <button id="createAlarmButton" class="ghost-button" type="button">+ 模擬告警</button>
             </div>
+            <div id="alarmSummaryBar"></div>
             <div id="alarmList" class="stack-list"></div>
           </div>
         </section>

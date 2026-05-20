@@ -366,6 +366,60 @@ function renderMetrics() {
     .join("");
 }
 
+function renderDashboardStatusChart() {
+  const statusOrder = ["pending_approval", "approved", "received", "split", "in_progress", "completed", "closed", "rejected"];
+  const statusColors = {
+    pending_approval: "var(--amber)", approved: "var(--green)", received: "#38a169",
+    split: "var(--violet)", in_progress: "var(--blue)", completed: "var(--teal)",
+    closed: "var(--teal)", rejected: "var(--red)"
+  };
+
+  const counts = {};
+  state.requests.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
+  const total = state.requests.length || 1;
+
+  const segments = statusOrder
+    .filter((s) => counts[s])
+    .map((s) => `<div class="status-bar-segment seg-${s}" style="width: ${(counts[s] / total * 100).toFixed(1)}%" title="${statusText[s] || s}: ${counts[s]}">${counts[s]}</div>`)
+    .join("");
+
+  const legend = statusOrder
+    .filter((s) => counts[s])
+    .map((s) => `<span class="legend-item"><span class="legend-dot" style="background: ${statusColors[s]}"></span>${statusText[s] || s} (${counts[s]})</span>`)
+    .join("");
+
+  $("#dashboardStatusChart").innerHTML = `
+    <div class="status-bar-container">${segments || '<div style="width:100%;text-align:center;color:var(--muted);font-size:12px;">尚無委託單</div>'}</div>
+    <div class="status-legend">${legend}</div>
+  `;
+}
+
+function renderDashboardUtilization() {
+  $("#dashboardUtilization").innerHTML = state.equipment
+    .map((machine) => `
+      <div class="chart-item">
+        <div class="chart-label">
+          <span>${escapeHtml(machine.name)} ${statusPill(machine.status)}</span>
+          <span>${machine.utilization}%</span>
+        </div>
+        <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
+      </div>
+    `)
+    .join("");
+}
+
+function renderDashboardTimeline() {
+  const items = state.audit.slice(0, 8);
+  $("#dashboardTimeline").innerHTML = items.length
+    ? items.map((entry) => `
+        <div class="mini-timeline-item">
+          <span>${auditMessage(entry)}</span>
+          <span class="mini-time">${auditTime(entry)}</span>
+        </div>
+      `).join("")
+    : '<div class="empty-state" style="min-height:60px;">尚無操作紀錄</div>';
+}
+
 function renderRequestTables() {
   const rows = state.requests
     .map((request) => `
@@ -604,10 +658,24 @@ function renderEquipment() {
 }
 
 function renderReports() {
+  // Result stat bar
+  const closedResults = state.results.filter((r) => {
+    const req = requestById(r.requestId);
+    return req && req.status === "closed";
+  }).length;
+  $("#resultStatBar").innerHTML = state.results.length
+    ? `<div class="result-stat-bar">
+        <span>結果總數 <span class="stat-value">${state.results.length}</span></span>
+        <span>已結案 <span class="stat-value">${closedResults}</span></span>
+       </div>`
+    : "";
+
+  // Result cards — enhanced with metadata
   $("#resultList").innerHTML = state.results.length
     ? state.results
         .map((result) => {
           const request = requestById(result.requestId);
+          const job = result.jobId ? jobById(result.jobId) : null;
           const closeButton = request && request.status !== "closed"
             ? `<button class="success-button" type="button" data-action="close-request" data-request-id="${request.id}">結案</button>`
             : "";
@@ -621,8 +689,12 @@ function renderReports() {
                 ${request ? statusPill(request.status) : ""}
               </div>
               <ul class="detail-list">
-                <li><strong>Raw data：</strong>${escapeHtml(result.rawData)}</li>
-                <li><strong>Report：</strong>${escapeHtml(result.report)}</li>
+                ${job ? `<li><strong>Job：</strong>${escapeHtml(job.id)}</li>` : ""}
+                ${job ? `<li><strong>機台：</strong>${escapeHtml(equipmentName(job.equipmentId))}</li>` : ""}
+                ${job ? `<li><strong>Recipe：</strong>${escapeHtml(recipeName(job.recipeId))}</li>` : ""}
+                ${result.createdAt ? `<li><strong>完成時間：</strong>${escapeHtml(result.createdAt)}</li>` : ""}
+                <li><strong>Raw data：</strong><span class="result-meta-code">${escapeHtml(result.rawData)}</span></li>
+                <li><strong>Report：</strong><span class="result-meta-code">${escapeHtml(result.report)}</span></li>
               </ul>
               <div class="button-row">${closeButton}</div>
             </article>
@@ -631,6 +703,7 @@ function renderReports() {
         .join("")
     : `<div class="empty-state">完成下貨後會自動產生結果資料</div>`;
 
+  // Utilization chart
   $("#utilizationChart").innerHTML = state.equipment
     .map((machine) => `
       <div class="chart-item">
@@ -643,22 +716,46 @@ function renderReports() {
     `)
     .join("");
 
+  // Alarm summary bar
+  const activeAlarms = state.alarms.filter((a) => a.status === "alarm").length;
+  const closedAlarms = state.alarms.filter((a) => a.status === "closed").length;
+  $("#alarmSummaryBar").innerHTML = state.alarms.length
+    ? `<div class="alarm-summary">
+        <span>活動中 <span class="summary-count">${activeAlarms}</span></span>
+        <span>已處理 <span class="summary-count">${closedAlarms}</span></span>
+        <span>合計 <span class="summary-count">${state.alarms.length}</span></span>
+       </div>`
+    : "";
+
+  // Alarm cards — enhanced with severity and ack info
   $("#alarmList").innerHTML = state.alarms.length
     ? state.alarms
-        .map((alarm) => `
-          <article class="stack-card">
-            <div class="stack-card-header">
-              <div>
-                <h3>${escapeHtml(alarm.id)}｜${escapeHtml(equipmentName(alarm.equipmentId))}</h3>
-                <p>${escapeHtml(alarm.message)}</p>
+        .map((alarm) => {
+          const severityTag = alarm.severity
+            ? `<span class="severity-pill severity-${escapeHtml(alarm.severity)}">${escapeHtml(alarm.severity)}</span>`
+            : "";
+          const ackInfo = alarm.status === "closed" && alarm.acknowledgedBy
+            ? `<li><strong>處理者：</strong>${escapeHtml(alarm.acknowledgedBy)}</li>
+               <li><strong>處理時間：</strong>${escapeHtml(alarm.acknowledgedAt || "N/A")}</li>`
+            : "";
+          return `
+            <article class="stack-card">
+              <div class="stack-card-header">
+                <div>
+                  <h3>${escapeHtml(alarm.id)}｜${escapeHtml(equipmentName(alarm.equipmentId))} ${severityTag}</h3>
+                  <p>${escapeHtml(alarm.message)}</p>
+                </div>
+                ${statusPill(alarm.status)}
               </div>
-              ${statusPill(alarm.status)}
-            </div>
-            <div class="button-row">
-              ${alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${escapeHtml(alarm.id)}">確認處理</button>` : ""}
-            </div>
-          </article>
-        `)
+              <ul class="detail-list">
+                ${ackInfo}
+              </ul>
+              <div class="button-row">
+                ${alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${escapeHtml(alarm.id)}">確認處理</button>` : ""}
+              </div>
+            </article>
+          `;
+        })
         .join("")
     : `<div class="empty-state">目前沒有異常告警</div>`;
 }
@@ -666,6 +763,9 @@ function renderReports() {
 function renderAll() {
   $("#roleBadge").textContent = roleText[state.currentRole];
   renderMetrics();
+  renderDashboardStatusChart();
+  renderDashboardUtilization();
+  renderDashboardTimeline();
   renderRequestTables();
   renderMachineSummary();
   renderApproval();
@@ -1092,5 +1192,5 @@ $("#createAlarmButton").addEventListener("click", simulateAlarm);
 boot();
 
 if (typeof module !== "undefined") {
-  module.exports = { escapeHtml };
+  module.exports = { escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText };
 }
