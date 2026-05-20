@@ -148,11 +148,13 @@ function apiUrl(path) {
 }
 
 function statusPill(status) {
-  return `<span class="status-pill status-${status}">${statusText[status] || status}</span>`;
+  const safeStatus = escapeHtml(status);
+  return `<span class="status-pill status-${safeStatus}">${statusText[status] || safeStatus}</span>`;
 }
 
 function priorityPill(priority) {
-  return `<span class="priority-pill priority-${priority}">${priority}</span>`;
+  const safePriority = escapeHtml(priority);
+  return `<span class="priority-pill priority-${safePriority}">${safePriority}</span>`;
 }
 
 function equipmentName(id) {
@@ -548,7 +550,7 @@ function renderDispatchOptions() {
   const selectedRequestId = requestSelect.value;
   const dispatchable = state.requests.filter((request) => ["received", "split"].includes(request.status));
   requestSelect.innerHTML = dispatchable.length
-    ? dispatchable.map((request) => `<option value="${request.id}">${request.id}｜${request.labType}</option>`).join("")
+    ? dispatchable.map((request) => `<option value="${escapeHtml(request.id)}">${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</option>`).join("")
     : `<option value="">沒有可派貨項目</option>`;
 
   if (selectedRequestId && dispatchable.some((request) => request.id === selectedRequestId)) {
@@ -558,14 +560,14 @@ function renderDispatchOptions() {
   const selectedRequest = requestById(requestSelect.value);
   const wipOptions = selectedRequest
     ? (selectedRequest.wips.length ? selectedRequest.wips : selectedRequest.samples).map((item) => `
-        <option value="${item.id}">${item.id}｜${item.quantity || 1}</option>
+        <option value="${escapeHtml(item.id)}">${escapeHtml(item.id)}｜${item.quantity || 1}</option>
       `)
     : [];
   $("#dispatchWip").innerHTML = wipOptions.join("") || `<option value="">請先收件</option>`;
 
   $("#dispatchEquipment").innerHTML = state.equipment
     .filter((machine) => !["maintenance", "alarm"].includes(machine.status))
-    .map((machine) => `<option value="${machine.id}">${machine.name}｜${statusText[machine.status]}</option>`)
+    .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}｜${statusText[machine.status]}</option>`)
     .join("") || `<option value="">沒有可派貨機台</option>`;
   renderRecipeOptions();
 }
@@ -574,7 +576,7 @@ function renderRecipeOptions() {
   const equipmentId = $("#dispatchEquipment").value;
   const recipes = state.recipes.filter((recipe) => recipe.equipmentId === equipmentId && recipe.active !== false);
   $("#dispatchRecipe").innerHTML = recipes.length
-    ? recipes.map((recipe) => `<option value="${recipe.id}">${recipe.name} v${recipe.version}</option>`).join("")
+    ? recipes.map((recipe) => `<option value="${escapeHtml(recipe.id)}">${escapeHtml(recipe.name)} v${escapeHtml(recipe.version)}</option>`).join("")
     : `<option value="">此機台尚無 Recipe</option>`;
 }
 

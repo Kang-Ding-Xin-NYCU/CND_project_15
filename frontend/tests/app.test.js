@@ -113,3 +113,17 @@ test("statusText should contain all expected status translations", () => {
   assert.equal(statusText.completed, "已完成");
   assert.equal(statusText.running, "執行中");
 });
+
+// ==================== XSS safety in helpers ====================
+test("statusPill should escape malicious status values", () => {
+  const result = statusPill('<img onerror="alert(1)">');
+  assert.ok(!result.includes('<img'), "should not contain raw HTML tag");
+  assert.ok(result.includes("&lt;img"), "should contain escaped HTML");
+});
+
+test("priorityPill should escape malicious priority values", () => {
+  const result = priorityPill('" onclick="alert(1)"');
+  // The raw " should be escaped to &quot; preventing attribute injection
+  assert.ok(!result.includes('onclick="alert'), "should not contain unescaped attribute injection");
+  assert.ok(result.includes("&quot;"), "should contain escaped quotes");
+});
