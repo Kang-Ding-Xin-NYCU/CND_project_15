@@ -127,6 +127,17 @@ const pageTitles = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const apiBaseUrl = (window.LIMS_API_BASE_URL || "").replace(/\/$/, "");
+
+function escapeHtml(unsafe) {
+  if (typeof unsafe !== "string") return unsafe;
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const authState = {
   token: window.localStorage.getItem("limsJwt") || "",
   user: null
@@ -189,7 +200,7 @@ function addAudit(message) {
 }
 
 function auditMessage(entry) {
-  return typeof entry === "string" ? entry : entry.message;
+  return escapeHtml(typeof entry === "string" ? entry : entry.message);
 }
 
 function auditTime(entry) {
@@ -359,9 +370,9 @@ function renderRequestTables() {
   const rows = state.requests
     .map((request) => `
       <tr>
-        <td><strong>${request.id}</strong><br><span class="muted">${request.department}</span></td>
-        <td>${request.requester}</td>
-        <td>${request.samples.map((sample) => `${sample.id} (${sample.quantity})`).join("<br>")}</td>
+        <td><strong>${escapeHtml(request.id)}</strong><br><span class="muted">${escapeHtml(request.department)}</span></td>
+        <td>${escapeHtml(request.requester)}</td>
+        <td>${request.samples.map((sample) => `${escapeHtml(sample.id)} (${sample.quantity})`).join("<br>")}</td>
         <td>${statusPill(request.status)}</td>
       </tr>
     `)
@@ -373,10 +384,10 @@ function renderRequestTables() {
     .slice(0, 5)
     .map((request) => `
       <tr>
-        <td><strong>${request.id}</strong></td>
-        <td>${request.labType}<br><span class="muted">${request.samples[0]?.material || ""}</span></td>
+        <td><strong>${escapeHtml(request.id)}</strong></td>
+        <td>${escapeHtml(request.labType)}<br><span class="muted">${escapeHtml(request.samples[0]?.material || "")}</span></td>
         <td>${statusPill(request.status)}</td>
-        <td>${request.dueDate}</td>
+        <td>${escapeHtml(request.dueDate)}</td>
       </tr>
     `)
     .join("");
@@ -387,10 +398,10 @@ function renderMachineSummary() {
     .map((machine) => `
       <article class="machine-card">
         <div class="stack-card-header">
-          <h3>${machine.name}</h3>
+          <h3>${escapeHtml(machine.name)}</h3>
           ${statusPill(machine.status)}
         </div>
-        <p>${machine.area}｜${machine.capability}</p>
+        <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
         <div class="machine-meta">
           <span class="muted">利用率 ${machine.utilization}%</span>
         </div>
@@ -408,15 +419,15 @@ function renderApproval() {
           <article class="stack-card">
             <div class="stack-card-header">
               <div>
-                <h3>${request.id}｜${request.labType}</h3>
-                <p>${request.goal}</p>
+                <h3>${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</h3>
+                <p>${escapeHtml(request.goal)}</p>
               </div>
               ${priorityPill(request.priority)}
             </div>
             <ul class="detail-list">
-              <li><strong>申請人：</strong>${request.requester} / ${request.department}</li>
-              <li><strong>樣品：</strong>${request.samples.map((sample) => `${sample.id} ${sample.material}`).join(", ")}</li>
-              <li><strong>需求日期：</strong>${request.dueDate}</li>
+              <li><strong>申請人：</strong>${escapeHtml(request.requester)} / ${escapeHtml(request.department)}</li>
+              <li><strong>樣品：</strong>${request.samples.map((sample) => `${escapeHtml(sample.id)} ${escapeHtml(sample.material)}`).join(", ")}</li>
+              <li><strong>需求日期：</strong>${escapeHtml(request.dueDate)}</li>
             </ul>
             <div class="button-row">
               <button class="success-button" type="button" data-action="approve" data-request-id="${request.id}">✓ 核准</button>
@@ -445,10 +456,10 @@ function renderReceiving() {
     ? actionable
         .map((request) => {
           const sampleInfo = request.samples
-            .map((sample) => `${sample.id} ${sample.material} x${sample.quantity}｜${statusText[sample.status] || sample.status}`)
+            .map((sample) => `${escapeHtml(sample.id)} ${escapeHtml(sample.material)} x${sample.quantity}｜${statusText[sample.status] || escapeHtml(sample.status)}`)
             .join("<br>");
           const wipInfo = request.wips.length
-            ? request.wips.map((wip) => `${wip.id}｜${wip.purpose}｜${wip.quantity}`).join("<br>")
+            ? request.wips.map((wip) => `${escapeHtml(wip.id)}｜${escapeHtml(wip.purpose)}｜${wip.quantity}`).join("<br>")
             : "尚未分貨";
           const receiveButton = request.status === "approved"
             ? `<button class="success-button" type="button" data-action="receive" data-request-id="${request.id}">✓ 收件</button>`
@@ -461,8 +472,8 @@ function renderReceiving() {
             <article class="stack-card">
               <div class="stack-card-header">
                 <div>
-                  <h3>${request.id}｜${request.labType}</h3>
-                  <p>${request.goal}</p>
+                  <h3>${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</h3>
+                  <p>${escapeHtml(request.goal)}</p>
                 </div>
                 ${statusPill(request.status)}
               </div>
@@ -521,22 +532,22 @@ function renderJobs() {
           const canLoad = job.status === "queued";
           const canUnload = ["loaded", "running"].includes(job.status);
           const history = (job.history || [])
-            .map((item) => typeof item === "string" ? item : `${item.occurredAt} ${item.note || item.action}`)
+            .map((item) => typeof item === "string" ? escapeHtml(item) : `${escapeHtml(item.occurredAt)} ${escapeHtml(item.note || item.action)}`)
             .join("<br>");
           return `
             <article class="job-card">
               <div class="job-card-header">
                 <div>
-                  <h3>${job.id}</h3>
-                  <p>${job.requestId}｜${request?.labType || ""}</p>
+                  <h3>${escapeHtml(job.id)}</h3>
+                  <p>${escapeHtml(job.requestId)}｜${escapeHtml(request?.labType || "")}</p>
                 </div>
                 ${statusPill(job.status)}
               </div>
               <ul class="detail-list">
-                <li><strong>WIP：</strong>${job.wipId}</li>
-                <li><strong>機台：</strong>${equipmentName(job.equipmentId)}</li>
-                <li><strong>Recipe：</strong>${recipeName(job.recipeId)}</li>
-                <li><strong>備註：</strong>${job.note}</li>
+                <li><strong>WIP：</strong>${escapeHtml(job.wipId)}</li>
+                <li><strong>機台：</strong>${escapeHtml(equipmentName(job.equipmentId))}</li>
+                <li><strong>Recipe：</strong>${escapeHtml(recipeName(job.recipeId))}</li>
+                <li><strong>備註：</strong>${escapeHtml(job.note)}</li>
                 <li><strong>歷史：</strong>${history || "尚無紀錄"}</li>
               </ul>
               <div class="button-row">
@@ -556,33 +567,39 @@ function renderEquipment() {
       <article class="stack-card">
         <div class="stack-card-header">
           <div>
-            <h3>${machine.name}</h3>
-            <p>${machine.area}｜${machine.capability}</p>
+            <h3>${escapeHtml(machine.name)}</h3>
+            <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
           </div>
           ${statusPill(machine.status)}
         </div>
         <div class="button-row">
-          <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${machine.id}" data-status="idle">設為閒置</button>
-          <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${machine.id}" data-status="maintenance">保養</button>
-          <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${machine.id}" data-status="alarm">異常</button>
+          <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>
+          <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="maintenance">保養</button>
+          <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="alarm">異常</button>
         </div>
       </article>
     `)
     .join("");
 
   $("#recipeEquipment").innerHTML = state.equipment
-    .map((machine) => `<option value="${machine.id}">${machine.name}</option>`)
+    .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}</option>`)
     .join("");
 
   $("#recipeRows").innerHTML = state.recipes
-    .map((recipe) => `
-      <tr>
-        <td><strong>${recipe.name}</strong><br><span class="muted">${recipe.id}</span></td>
-        <td>${equipmentName(recipe.equipmentId)}</td>
-        <td>${recipe.version}</td>
-        <td>${recipe.parameters}</td>
+    .map((recipe) => {
+      const isDeactivated = recipe.active === false;
+      const deactivateBtn = (!isDeactivated && state.currentRole === "admin")
+        ? `<button class="ghost-button compact-button" type="button" data-action="deactivate-recipe" data-recipe-id="${escapeHtml(recipe.id)}">停用</button>`
+        : "";
+      return `
+      <tr class="${isDeactivated ? 'recipe-deactivated' : ''}">
+        <td><strong>${escapeHtml(recipe.name)}</strong> ${isDeactivated ? '<span class="status-pill status-maintenance">已停用</span>' : ''}<br><span class="muted">${escapeHtml(recipe.id)}</span></td>
+        <td>${escapeHtml(equipmentName(recipe.equipmentId))}</td>
+        <td>${escapeHtml(recipe.version)}</td>
+        <td>${escapeHtml(recipe.parameters)}<br>${deactivateBtn}</td>
       </tr>
-    `)
+      `;
+    })
     .join("");
 }
 
@@ -598,14 +615,14 @@ function renderReports() {
             <article class="stack-card">
               <div class="stack-card-header">
                 <div>
-                  <h3>${result.id}｜${result.requestId}</h3>
-                  <p>${result.summary}</p>
+                  <h3>${escapeHtml(result.id)}｜${escapeHtml(result.requestId)}</h3>
+                  <p>${escapeHtml(result.summary)}</p>
                 </div>
                 ${request ? statusPill(request.status) : ""}
               </div>
               <ul class="detail-list">
-                <li><strong>Raw data：</strong>${result.rawData}</li>
-                <li><strong>Report：</strong>${result.report}</li>
+                <li><strong>Raw data：</strong>${escapeHtml(result.rawData)}</li>
+                <li><strong>Report：</strong>${escapeHtml(result.report)}</li>
               </ul>
               <div class="button-row">${closeButton}</div>
             </article>
@@ -618,7 +635,7 @@ function renderReports() {
     .map((machine) => `
       <div class="chart-item">
         <div class="chart-label">
-          <span>${machine.name}</span>
+          <span>${escapeHtml(machine.name)}</span>
           <span>${machine.utilization}%</span>
         </div>
         <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
@@ -632,13 +649,13 @@ function renderReports() {
           <article class="stack-card">
             <div class="stack-card-header">
               <div>
-                <h3>${alarm.id}｜${equipmentName(alarm.equipmentId)}</h3>
-                <p>${alarm.message}</p>
+                <h3>${escapeHtml(alarm.id)}｜${escapeHtml(equipmentName(alarm.equipmentId))}</h3>
+                <p>${escapeHtml(alarm.message)}</p>
               </div>
               ${statusPill(alarm.status)}
             </div>
             <div class="button-row">
-              ${alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${alarm.id}">確認處理</button>` : ""}
+              ${alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${escapeHtml(alarm.id)}">確認處理</button>` : ""}
             </div>
           </article>
         `)
@@ -1011,7 +1028,7 @@ document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-action]");
   if (!actionButton) return;
 
-  const { action, requestId, jobId, equipmentId, status, alarmId } = actionButton.dataset;
+  const { action, requestId, jobId, equipmentId, status, alarmId, recipeId } = actionButton.dataset;
   if (action === "approve") approveRequest(requestId);
   if (action === "reject") rejectRequest(requestId);
   if (action === "receive") receiveRequest(requestId);
@@ -1021,6 +1038,7 @@ document.addEventListener("click", (event) => {
   if (action === "machine-status") changeMachineStatus(equipmentId, status);
   if (action === "close-request") closeRequest(requestId);
   if (action === "ack-alarm") acknowledgeAlarm(alarmId);
+  if (action === "deactivate-recipe") deactivateRecipe(recipeId);
 });
 
 $("#requestForm").addEventListener("submit", (event) => {
@@ -1048,6 +1066,20 @@ $("#recipeForm").addEventListener("submit", (event) => {
   createRecipe(event.currentTarget);
 });
 
+async function deactivateRecipe(id) {
+  if (await apiClient.action(`/api/recipes/${encodeURIComponent(id)}/deactivate`, {
+    method: "POST",
+    body: JSON.stringify(actorPayload())
+  })) return;
+
+  const recipe = state.recipes.find((r) => r.id === id);
+  if (!recipe) return;
+  recipe.active = false;
+  addAudit(`${id} 已停用`);
+  showToast(`${id} 已停用`);
+  renderAll();
+}
+
 $("#dispatchRequest").addEventListener("change", renderDispatchOptions);
 $("#dispatchEquipment").addEventListener("change", renderRecipeOptions);
 $("#roleSelect").addEventListener("change", (event) => {
@@ -1058,3 +1090,7 @@ $("#roleSelect").addEventListener("change", (event) => {
 $("#createAlarmButton").addEventListener("click", simulateAlarm);
 
 boot();
+
+if (typeof module !== "undefined") {
+  module.exports = { escapeHtml };
+}
