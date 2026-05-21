@@ -184,3 +184,63 @@ test("renderReports should display formatted result and alarm data", () => {
   assert.ok(alarmHtml.includes("ALM-1"), "Should display alarm ID");
   assert.ok(alarmHtml.includes("severity-High"), "Should display severity class");
 });
+
+// ==================== Extended Edge Case Tests ====================
+test("Defensive State Null-Safety: render functions should survive null states", () => {
+  const originalState = { ...state };
+  
+  // Simulate API returning nulls
+  state.requests = null;
+  state.equipment = null;
+  state.recipes = null;
+  state.jobs = null;
+  state.results = null;
+  state.alarms = null;
+  state.audit = null;
+
+  // Execution should not throw TypeError
+  assert.doesNotThrow(() => {
+    renderDashboardStatusChart();
+    renderDashboardUtilization();
+    renderReports();
+  }, "Render functions should handle null states gracefully");
+
+  // Restore state
+  Object.assign(state, originalState);
+});
+
+test("Utilization Boundary Defense: Should restrict out-of-bound and NaN utilization", () => {
+  state.equipment = [
+    { id: "EQ-1", name: "Eq 1", status: "idle", utilization: -20 },
+    { id: "EQ-2", name: "Eq 2", status: "idle", utilization: 150 },
+    { id: "EQ-3", name: "Eq 3", status: "idle", utilization: "invalid" }
+  ];
+  
+  renderDashboardUtilization();
+  const html = global.domNodes["#dashboardUtilization"].innerHTML;
+  
+  assert.ok(html.includes("width: 0%"), "Negative utilization should be clamped to 0%");
+  assert.ok(html.includes("width: 100%"), "Over-100 utilization should be clamped to 100%");
+  
+  const zeroCount = (html.match(/width: 0%/g) || []).length;
+  assert.equal(zeroCount, 2, "Both negative and invalid utilizations should be clamped to 0%");
+});
+
+test("HTML Attribute XSS Defense: data-* attributes should be escaped", () => {
+  const evilId = 'REQ-"onclick="alert(1)"';
+  state.requests = [{ id: evilId, status: "completed", samples: [], wips: [] }];
+  state.results = [{ 
+    id: "RES-1", 
+    requestId: evilId, 
+    summary: "Test", 
+    rawData: "path", 
+    report: "path" 
+  }];
+  
+  renderReports();
+  const html = global.domNodes["#resultList"].innerHTML;
+  
+  assert.ok(!html.includes(`data-request-id="${evilId}"`), "Should not contain unescaped attribute injection");
+  assert.ok(html.includes("&quot;"), "Should escape quotes in data-request-id attribute");
+});
+

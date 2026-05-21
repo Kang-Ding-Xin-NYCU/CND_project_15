@@ -345,11 +345,14 @@ function switchSection(sectionId) {
 }
 
 function renderMetrics() {
+  const requests = state.requests || [];
+  const jobs = state.jobs || [];
+  const alarms = state.alarms || [];
   const counts = {
-    pending: state.requests.filter((item) => item.status === "pending_approval").length,
-    receiving: state.requests.filter((item) => item.status === "approved").length,
-    running: state.jobs.filter((job) => ["queued", "loaded", "running"].includes(job.status)).length,
-    alarms: state.alarms.filter((alarm) => alarm.status === "alarm").length
+    pending: requests.filter((item) => item.status === "pending_approval").length,
+    receiving: requests.filter((item) => item.status === "approved").length,
+    running: jobs.filter((job) => ["queued", "loaded", "running"].includes(job.status)).length,
+    alarms: alarms.filter((alarm) => alarm.status === "alarm").length
   };
 
   $("#metricGrid").innerHTML = [
@@ -369,6 +372,7 @@ function renderMetrics() {
 }
 
 function renderDashboardStatusChart() {
+  const requests = state.requests || [];
   const statusOrder = ["pending_approval", "approved", "received", "split", "in_progress", "completed", "closed", "rejected"];
   const statusColors = {
     pending_approval: "var(--amber)", approved: "var(--green)", received: "#38a169",
@@ -377,8 +381,8 @@ function renderDashboardStatusChart() {
   };
 
   const counts = {};
-  state.requests.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
-  const total = state.requests.length || 1;
+  requests.forEach((r) => { counts[r.status] = (counts[r.status] || 0) + 1; });
+  const total = requests.length || 1;
 
   const segments = statusOrder
     .filter((s) => counts[s])
@@ -397,23 +401,28 @@ function renderDashboardStatusChart() {
 }
 
 function renderDashboardUtilization() {
-  $("#dashboardUtilization").innerHTML = state.equipment.length
-    ? state.equipment
-        .map((machine) => `
+  const equipment = state.equipment || [];
+  $("#dashboardUtilization").innerHTML = equipment.length
+    ? equipment
+        .map((machine) => {
+          const rawUtil = Number(machine.utilization);
+          const cleanUtil = isNaN(rawUtil) ? 0 : Math.max(0, Math.min(100, Math.round(rawUtil)));
+          return `
           <div class="chart-item">
             <div class="chart-label">
               <span>${escapeHtml(machine.name)} ${statusPill(machine.status)}</span>
-              <span>${machine.utilization}%</span>
+              <span>${cleanUtil}%</span>
             </div>
-            <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
+            <div class="chart-track"><div class="chart-bar" style="width: ${cleanUtil}%"></div></div>
           </div>
-        `)
+        `})
         .join("")
     : '<div class="empty-state">尚無機台資料</div>';
 }
 
 function renderDashboardTimeline() {
-  const items = state.audit.slice(0, 8);
+  const audit = state.audit || [];
+  const items = audit.slice(0, 8);
   $("#dashboardTimeline").innerHTML = items.length
     ? items.map((entry) => `
         <div class="mini-timeline-item">
@@ -425,8 +434,9 @@ function renderDashboardTimeline() {
 }
 
 function renderRequestTables() {
-  const rows = state.requests.length
-    ? state.requests
+  const requests = state.requests || [];
+  const rows = requests.length
+    ? requests
         .map((request) => `
           <tr>
             <td><strong>${escapeHtml(request.id)}</strong><br><span class="muted">${escapeHtml(request.department)}</span></td>
@@ -440,8 +450,8 @@ function renderRequestTables() {
 
   $("#requestRows").innerHTML = rows;
 
-  $("#recentRequestRows").innerHTML = state.requests.length
-    ? state.requests
+  $("#recentRequestRows").innerHTML = requests.length
+    ? requests
         .slice(0, 5)
         .map((request) => `
           <tr>
@@ -456,8 +466,9 @@ function renderRequestTables() {
 }
 
 function renderMachineSummary() {
-  $("#machineSummary").innerHTML = state.equipment.length
-    ? state.equipment
+  const equipment = state.equipment || [];
+  $("#machineSummary").innerHTML = equipment.length
+    ? equipment
         .map((machine) => `
           <article class="machine-card">
             <div class="stack-card-header">
@@ -475,7 +486,9 @@ function renderMachineSummary() {
 }
 
 function renderApproval() {
-  const pending = state.requests.filter((request) => request.status === "pending_approval");
+  const requests = state.requests || [];
+  const audit = state.audit || [];
+  const pending = requests.filter((request) => request.status === "pending_approval");
 
   $("#approvalQueue").innerHTML = pending.length
     ? pending
@@ -494,8 +507,8 @@ function renderApproval() {
               <li><strong>需求日期：</strong>${escapeHtml(request.dueDate)}</li>
             </ul>
             <div class="button-row">
-              <button class="success-button" type="button" data-action="approve" data-request-id="${request.id}">✓ 核准</button>
-              <button class="danger-button" type="button" data-action="reject" data-request-id="${request.id}">× 退回</button>
+              <button class="success-button" type="button" data-action="approve" data-request-id="${escapeHtml(request.id)}">✓ 核准</button>
+              <button class="danger-button" type="button" data-action="reject" data-request-id="${escapeHtml(request.id)}">× 退回</button>
             </div>
           </article>
         `)
@@ -514,7 +527,8 @@ function renderApproval() {
 }
 
 function renderReceiving() {
-  const actionable = state.requests.filter((request) => ["approved", "received", "split"].includes(request.status));
+  const requests = state.requests || [];
+  const actionable = requests.filter((request) => ["approved", "received", "split"].includes(request.status));
 
   $("#receivingList").innerHTML = actionable.length
     ? actionable
@@ -526,10 +540,10 @@ function renderReceiving() {
             ? request.wips.map((wip) => `${escapeHtml(wip.id)}｜${escapeHtml(wip.purpose)}｜${wip.quantity}`).join("<br>")
             : "尚未分貨";
           const receiveButton = request.status === "approved"
-            ? `<button class="success-button" type="button" data-action="receive" data-request-id="${request.id}">✓ 收件</button>`
+            ? `<button class="success-button" type="button" data-action="receive" data-request-id="${escapeHtml(request.id)}">✓ 收件</button>`
             : "";
           const splitButton = request.status === "received" && request.wips.length === 0
-            ? `<button class="warning-button" type="button" data-action="split" data-request-id="${request.id}">分貨</button>`
+            ? `<button class="warning-button" type="button" data-action="split" data-request-id="${escapeHtml(request.id)}">分貨</button>`
             : "";
 
           return `
@@ -554,9 +568,11 @@ function renderReceiving() {
 }
 
 function renderDispatchOptions() {
+  const requests = state.requests || [];
+  const equipment = state.equipment || [];
   const requestSelect = $("#dispatchRequest");
   const selectedRequestId = requestSelect.value;
-  const dispatchable = state.requests.filter((request) => ["received", "split"].includes(request.status));
+  const dispatchable = requests.filter((request) => ["received", "split"].includes(request.status));
   requestSelect.innerHTML = dispatchable.length
     ? dispatchable.map((request) => `<option value="${escapeHtml(request.id)}">${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</option>`).join("")
     : `<option value="">沒有可派貨項目</option>`;
@@ -573,7 +589,7 @@ function renderDispatchOptions() {
     : [];
   $("#dispatchWip").innerHTML = wipOptions.join("") || `<option value="">請先收件</option>`;
 
-  $("#dispatchEquipment").innerHTML = state.equipment
+  $("#dispatchEquipment").innerHTML = equipment
     .filter((machine) => !["maintenance", "alarm"].includes(machine.status))
     .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}｜${statusText[machine.status]}</option>`)
     .join("") || `<option value="">沒有可派貨機台</option>`;
@@ -589,8 +605,9 @@ function renderRecipeOptions() {
 }
 
 function renderJobs() {
-  $("#jobBoard").innerHTML = state.jobs.length
-    ? state.jobs
+  const jobs = state.jobs || [];
+  $("#jobBoard").innerHTML = jobs.length
+    ? jobs
         .map((job) => {
           const request = requestById(job.requestId);
           const canLoad = job.status === "queued";
@@ -615,8 +632,8 @@ function renderJobs() {
                 <li><strong>歷史：</strong>${history || "尚無紀錄"}</li>
               </ul>
               <div class="button-row">
-                ${canLoad ? `<button class="primary-button" type="button" data-action="load" data-job-id="${job.id}">上貨</button>` : ""}
-                ${canUnload ? `<button class="success-button" type="button" data-action="unload" data-job-id="${job.id}">下貨並回收數據</button>` : ""}
+                ${canLoad ? `<button class="primary-button" type="button" data-action="load" data-job-id="${escapeHtml(job.id)}">上貨</button>` : ""}
+                ${canUnload ? `<button class="success-button" type="button" data-action="unload" data-job-id="${escapeHtml(job.id)}">下貨並回收數據</button>` : ""}
               </div>
             </article>
           `;
@@ -626,8 +643,10 @@ function renderJobs() {
 }
 
 function renderEquipment() {
-  $("#equipmentList").innerHTML = state.equipment.length
-    ? state.equipment
+  const equipment = state.equipment || [];
+  const recipes = state.recipes || [];
+  $("#equipmentList").innerHTML = equipment.length
+    ? equipment
         .map((machine) => `
           <article class="stack-card">
             <div class="stack-card-header">
@@ -647,11 +666,11 @@ function renderEquipment() {
         .join("")
     : '<div class="empty-state">尚無機台資料</div>';
 
-  $("#recipeEquipment").innerHTML = state.equipment
+  $("#recipeEquipment").innerHTML = equipment
     .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}</option>`)
     .join("");
 
-  $("#recipeRows").innerHTML = state.recipes
+  $("#recipeRows").innerHTML = recipes
     .map((recipe) => {
       const isDeactivated = recipe.active === false;
       const deactivateBtn = (!isDeactivated && state.currentRole === "admin")
@@ -670,26 +689,30 @@ function renderEquipment() {
 }
 
 function renderReports() {
+  const results = state.results || [];
+  const equipment = state.equipment || [];
+  const alarms = state.alarms || [];
+
   // Result stat bar
-  const closedResults = state.results.filter((r) => {
+  const closedResults = results.filter((r) => {
     const req = requestById(r.requestId);
     return req && req.status === "closed";
   }).length;
-  $("#resultStatBar").innerHTML = state.results.length
+  $("#resultStatBar").innerHTML = results.length
     ? `<div class="result-stat-bar">
-        <span>結果總數 <span class="stat-value">${state.results.length}</span></span>
+        <span>結果總數 <span class="stat-value">${results.length}</span></span>
         <span>已結案 <span class="stat-value">${closedResults}</span></span>
        </div>`
     : "";
 
   // Result cards — enhanced with metadata
-  $("#resultList").innerHTML = state.results.length
-    ? state.results
+  $("#resultList").innerHTML = results.length
+    ? results
         .map((result) => {
           const request = requestById(result.requestId);
           const job = result.jobId ? jobById(result.jobId) : null;
           const closeButton = request && request.status !== "closed"
-            ? `<button class="success-button" type="button" data-action="close-request" data-request-id="${request.id}">結案</button>`
+            ? `<button class="success-button" type="button" data-action="close-request" data-request-id="${escapeHtml(request.id)}">結案</button>`
             : "";
           return `
             <article class="stack-card">
@@ -716,32 +739,35 @@ function renderReports() {
     : `<div class="empty-state">完成下貨後會自動產生結果資料</div>`;
 
   // Utilization chart
-  $("#utilizationChart").innerHTML = state.equipment
-    .map((machine) => `
+  $("#utilizationChart").innerHTML = equipment
+    .map((machine) => {
+      const rawUtil = Number(machine.utilization);
+      const cleanUtil = isNaN(rawUtil) ? 0 : Math.max(0, Math.min(100, Math.round(rawUtil)));
+      return `
       <div class="chart-item">
         <div class="chart-label">
           <span>${escapeHtml(machine.name)}</span>
-          <span>${machine.utilization}%</span>
+          <span>${cleanUtil}%</span>
         </div>
-        <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
+        <div class="chart-track"><div class="chart-bar" style="width: ${cleanUtil}%"></div></div>
       </div>
-    `)
+    `})
     .join("");
 
   // Alarm summary bar
-  const activeAlarms = state.alarms.filter((a) => a.status === "alarm").length;
-  const closedAlarms = state.alarms.filter((a) => a.status === "closed").length;
-  $("#alarmSummaryBar").innerHTML = state.alarms.length
+  const activeAlarms = alarms.filter((a) => a.status === "alarm").length;
+  const closedAlarms = alarms.filter((a) => a.status === "closed").length;
+  $("#alarmSummaryBar").innerHTML = alarms.length
     ? `<div class="alarm-summary">
         <span>活動中 <span class="summary-count">${activeAlarms}</span></span>
         <span>已處理 <span class="summary-count">${closedAlarms}</span></span>
-        <span>合計 <span class="summary-count">${state.alarms.length}</span></span>
+        <span>合計 <span class="summary-count">${alarms.length}</span></span>
        </div>`
     : "";
 
   // Alarm cards — enhanced with severity and ack info
-  $("#alarmList").innerHTML = state.alarms.length
-    ? state.alarms
+  $("#alarmList").innerHTML = alarms.length
+    ? alarms
         .map((alarm) => {
           const severityTag = alarm.severity
             ? `<span class="severity-pill severity-${escapeHtml(alarm.severity)}">${escapeHtml(alarm.severity)}</span>`
