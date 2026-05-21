@@ -397,17 +397,19 @@ function renderDashboardStatusChart() {
 }
 
 function renderDashboardUtilization() {
-  $("#dashboardUtilization").innerHTML = state.equipment
-    .map((machine) => `
-      <div class="chart-item">
-        <div class="chart-label">
-          <span>${escapeHtml(machine.name)} ${statusPill(machine.status)}</span>
-          <span>${machine.utilization}%</span>
-        </div>
-        <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
-      </div>
-    `)
-    .join("");
+  $("#dashboardUtilization").innerHTML = state.equipment.length
+    ? state.equipment
+        .map((machine) => `
+          <div class="chart-item">
+            <div class="chart-label">
+              <span>${escapeHtml(machine.name)} ${statusPill(machine.status)}</span>
+              <span>${machine.utilization}%</span>
+            </div>
+            <div class="chart-track"><div class="chart-bar" style="width: ${machine.utilization}%"></div></div>
+          </div>
+        `)
+        .join("")
+    : '<div class="empty-state">尚無機台資料</div>';
 }
 
 function renderDashboardTimeline() {
@@ -423,47 +425,53 @@ function renderDashboardTimeline() {
 }
 
 function renderRequestTables() {
-  const rows = state.requests
-    .map((request) => `
-      <tr>
-        <td><strong>${escapeHtml(request.id)}</strong><br><span class="muted">${escapeHtml(request.department)}</span></td>
-        <td>${escapeHtml(request.requester)}</td>
-        <td>${request.samples.map((sample) => `${escapeHtml(sample.id)} (${sample.quantity})`).join("<br>")}</td>
-        <td>${statusPill(request.status)}</td>
-      </tr>
-    `)
-    .join("");
+  const rows = state.requests.length
+    ? state.requests
+        .map((request) => `
+          <tr>
+            <td><strong>${escapeHtml(request.id)}</strong><br><span class="muted">${escapeHtml(request.department)}</span></td>
+            <td>${escapeHtml(request.requester)}</td>
+            <td>${request.samples.map((sample) => `${escapeHtml(sample.id)} (${sample.quantity})`).join("<br>")}</td>
+            <td>${statusPill(request.status)}</td>
+          </tr>
+        `)
+        .join("")
+    : '<tr><td colspan="4" class="empty-state">尚無委託單資料</td></tr>';
 
   $("#requestRows").innerHTML = rows;
 
-  $("#recentRequestRows").innerHTML = state.requests
-    .slice(0, 5)
-    .map((request) => `
-      <tr>
-        <td><strong>${escapeHtml(request.id)}</strong></td>
-        <td>${escapeHtml(request.labType)}<br><span class="muted">${escapeHtml(request.samples[0]?.material || "")}</span></td>
-        <td>${statusPill(request.status)}</td>
-        <td>${escapeHtml(request.dueDate)}</td>
-      </tr>
-    `)
-    .join("");
+  $("#recentRequestRows").innerHTML = state.requests.length
+    ? state.requests
+        .slice(0, 5)
+        .map((request) => `
+          <tr>
+            <td><strong>${escapeHtml(request.id)}</strong></td>
+            <td>${escapeHtml(request.labType)}<br><span class="muted">${escapeHtml(request.samples[0]?.material || "")}</span></td>
+            <td>${statusPill(request.status)}</td>
+            <td>${escapeHtml(request.dueDate)}</td>
+          </tr>
+        `)
+        .join("")
+    : '<tr><td colspan="4" class="empty-state">尚無委託單資料</td></tr>';
 }
 
 function renderMachineSummary() {
-  $("#machineSummary").innerHTML = state.equipment
-    .map((machine) => `
-      <article class="machine-card">
-        <div class="stack-card-header">
-          <h3>${escapeHtml(machine.name)}</h3>
-          ${statusPill(machine.status)}
-        </div>
-        <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
-        <div class="machine-meta">
-          <span class="muted">利用率 ${machine.utilization}%</span>
-        </div>
-      </article>
-    `)
-    .join("");
+  $("#machineSummary").innerHTML = state.equipment.length
+    ? state.equipment
+        .map((machine) => `
+          <article class="machine-card">
+            <div class="stack-card-header">
+              <h3>${escapeHtml(machine.name)}</h3>
+              ${statusPill(machine.status)}
+            </div>
+            <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
+            <div class="machine-meta">
+              <span class="muted">利用率 ${machine.utilization}%</span>
+            </div>
+          </article>
+        `)
+        .join("")
+    : '<div class="empty-state">尚無機台資料</div>';
 }
 
 function renderApproval() {
@@ -618,24 +626,26 @@ function renderJobs() {
 }
 
 function renderEquipment() {
-  $("#equipmentList").innerHTML = state.equipment
-    .map((machine) => `
-      <article class="stack-card">
-        <div class="stack-card-header">
-          <div>
-            <h3>${escapeHtml(machine.name)}</h3>
-            <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
-          </div>
-          ${statusPill(machine.status)}
-        </div>
-        <div class="button-row">
-          <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>
-          <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="maintenance">保養</button>
-          <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="alarm">異常</button>
-        </div>
-      </article>
-    `)
-    .join("");
+  $("#equipmentList").innerHTML = state.equipment.length
+    ? state.equipment
+        .map((machine) => `
+          <article class="stack-card">
+            <div class="stack-card-header">
+              <div>
+                <h3>${escapeHtml(machine.name)}</h3>
+                <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
+              </div>
+              ${statusPill(machine.status)}
+            </div>
+            <div class="button-row">
+              <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>
+              <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="maintenance">保養</button>
+              <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="alarm">異常</button>
+            </div>
+          </article>
+        `)
+        .join("")
+    : '<div class="empty-state">尚無機台資料</div>';
 
   $("#recipeEquipment").innerHTML = state.equipment
     .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}</option>`)
@@ -1194,5 +1204,9 @@ $("#createAlarmButton").addEventListener("click", simulateAlarm);
 boot();
 
 if (typeof module !== "undefined") {
-  module.exports = { escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText };
+  module.exports = {
+    escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
+    renderDashboardStatusChart, renderDashboardUtilization, renderDashboardTimeline,
+    renderReports, renderRequestTables, renderMachineSummary, renderEquipment
+  };
 }

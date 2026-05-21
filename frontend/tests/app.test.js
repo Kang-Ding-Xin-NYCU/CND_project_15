@@ -5,15 +5,24 @@ global.window = {
   setTimeout: () => {},
   clearTimeout: () => {}
 };
+global.domNodes = {};
 global.document = {
-  querySelector: () => ({ classList: { add: () => {}, remove: () => {} }, textContent: "", addEventListener: () => {}, innerHTML: "" }),
+  querySelector: (sel) => {
+    if (!global.domNodes[sel]) {
+      global.domNodes[sel] = { classList: { add: () => {}, remove: () => {} }, textContent: "", addEventListener: () => {}, innerHTML: "" };
+    }
+    return global.domNodes[sel];
+  },
   querySelectorAll: () => [],
   addEventListener: () => {}
 };
 
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText } = require("../app");
+const {
+  escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
+  renderDashboardStatusChart, renderDashboardUtilization, renderReports
+} = require("../app");
 
 // ==================== escapeHtml ====================
 test("escapeHtml should replace HTML special characters", () => {
@@ -126,4 +135,52 @@ test("priorityPill should escape malicious priority values", () => {
   // The raw " should be escaped to &quot; preventing attribute injection
   assert.ok(!result.includes('onclick="alert'), "should not contain unescaped attribute injection");
   assert.ok(result.includes("&quot;"), "should contain escaped quotes");
+});
+
+// ==================== Render Functions ====================
+test("renderDashboardStatusChart should handle empty state", () => {
+  state.requests = [];
+  renderDashboardStatusChart();
+  const html = global.domNodes["#dashboardStatusChart"].innerHTML;
+  assert.ok(html.includes("尚無委託單"), "Should show empty state for requests");
+});
+
+test("renderDashboardUtilization should handle empty state", () => {
+  state.equipment = [];
+  renderDashboardUtilization();
+  const html = global.domNodes["#dashboardUtilization"].innerHTML;
+  assert.ok(html.includes("尚無機台資料"), "Should show empty state for equipment");
+});
+
+test("renderDashboardUtilization should escape equipment name", () => {
+  state.equipment = [{ id: "EQ-1", name: "<script>alert(1)</script>", status: "idle", utilization: 50 }];
+  renderDashboardUtilization();
+  const html = global.domNodes["#dashboardUtilization"].innerHTML;
+  assert.ok(!html.includes("<script>"), "Should not contain unescaped script tag");
+  assert.ok(html.includes("&lt;script&gt;"), "Should contain escaped script tag");
+});
+
+test("renderReports should handle empty state for results and alarms", () => {
+  state.results = [];
+  state.alarms = [];
+  renderReports();
+  assert.ok(global.domNodes["#resultStatBar"].innerHTML === "", "Result stat bar should be empty when no results");
+  assert.ok(global.domNodes["#alarmSummaryBar"].innerHTML === "", "Alarm summary bar should be empty when no alarms");
+  assert.ok(global.domNodes["#resultList"].innerHTML.includes("完成下貨後會自動產生結果資料"), "Should show empty state for results");
+  assert.ok(global.domNodes["#alarmList"].innerHTML.includes("目前沒有異常告警"), "Should show empty state for alarms");
+});
+
+test("renderReports should display formatted result and alarm data", () => {
+  state.results = [{ id: "RES-1", requestId: "REQ-1", summary: "Test Summary", rawData: "/data/1", report: "/report/1", createdAt: "2026/05/20 10:00:00" }];
+  state.alarms = [{ id: "ALM-1", equipmentId: "EQ-SEM-01", message: "Test Alarm", status: "alarm", severity: "High" }];
+  renderReports();
+  const resultHtml = global.domNodes["#resultList"].innerHTML;
+  const alarmHtml = global.domNodes["#alarmList"].innerHTML;
+  
+  assert.ok(resultHtml.includes("RES-1"), "Should display result ID");
+  assert.ok(resultHtml.includes("2026/05/20 10:00:00"), "Should display created time");
+  assert.ok(resultHtml.includes('class="result-meta-code"'), "Should use code block style for paths");
+  
+  assert.ok(alarmHtml.includes("ALM-1"), "Should display alarm ID");
+  assert.ok(alarmHtml.includes("severity-High"), "Should display severity class");
 });
