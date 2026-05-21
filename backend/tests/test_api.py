@@ -324,6 +324,174 @@ async def test_admin_can_manage_recipes_but_operator_cannot(tmp_path):
         assert created.json()["state"]["recipes"][0]["name"] == "RBAC Recipe"
 
 
+async def _prepare_received_request(client, *, sample_code="SMP-T-100", quantity=6):
+    fab_token = await login(client, "fab")
+    supervisor_token = await login(client, "supervisor")
+    operator_token = await login(client, "operator")
+    payload = await json_request(
+        client,
+        "POST",
+        "/api/requests",
+        token=fab_token,
+        json={
+            "requester": "Test User",
+            "department": "Fab Test",
+            "labType": "SEM",
+            "priority": "High",
+            "dueDate": "2026-05-20",
+            "sampleCode": sample_code,
+            "material": "Wafer Lot T",
+            "quantity": str(quantity),
+            "goal": "Validate split rules",
+        },
+    )
+    request_id = payload["state"]["requests"][0]["id"]
+    await json_request(client, "POST", f"/api/requests/{request_id}/approve", token=supervisor_token, json={})
+    await json_request(client, "POST", f"/api/requests/{request_id}/receive", token=operator_token, json={})
+    return request_id, operator_token
+
+
+@pytest.mark.anyio
+async def test_manual_split_creates_n_wips_with_quantities(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        request_id, operator_token = await _prepare_received_request(client, sample_code="SMP-T-200", quantity=6)
+
+        payload = await json_request(
+            client,
+            "POST",
+            f"/api/requests/{request_id}/split",
+            token=operator_token,
+            json={
+                "wips": [
+                    {"quantity": 2, "purpose": "SEM primary"},
+                    {"quantity": 2, "purpose": "SEM backup"},
+                    {"quantity": 2, "purpose": "SEM retain"},
+                ]
+            },
+        )
+
+        current_request = next(item for item in payload["state"]["requests"] if item["id"] == request_id)
+        assert current_request["status"] == "split"
+        assert current_request["samples"][0]["status"] == "split"
+        assert [wip["id"] for wip in current_request["wips"]] == ["SMP-T-200-A", "SMP-T-200-B", "SMP-T-200-C"]
+        assert [wip["quantity"] for wip in current_request["wips"]] == [2, 2, 2]
+        assert all(wip["status"] == "queued" for wip in current_request["wips"])
+        assert current_request["wips"][0]["purpose"] == "SEM primary"
+
+
+@pytest.mark.anyio
+async def test_split_rejects_total_quantity_over_sample(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        request_id, operator_token = await _prepare_received_request(client, sample_code="SMP-T-300", quantity=4)
+
+        response = await client.post(
+            f"/api/requests/{request_id}/split",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"wips": [{"quantity": 3, "purpose": "x"}, {"quantity": 3, "purpose": "y"}]},
+        )
+
+        assert response.status_code == 400
+        assert "exceeds sample quantity" in response.json()["error"]
+
+
+@pytest.mark.anyio
+async def test_split_rejects_empty_wips(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        request_id, operator_token = await _prepare_received_request(client, sample_code="SMP-T-400", quantity=4)
+
+        response = await client.post(
+            f"/api/requests/{request_id}/split",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"wips": []},
+        )
+
+        assert response.status_code == 400
+        assert "At least one WIP is required" in response.json()["error"]
+
+
+@pytest.mark.anyio
+async def test_split_rejects_non_positive_quantity(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        request_id, operator_token = await _prepare_received_request(client, sample_code="SMP-T-500", quantity=4)
+
+        response = await client.post(
+            f"/api/requests/{request_id}/split",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"wips": [{"quantity": 0, "purpose": "zero"}]},
+        )
+
+        assert response.status_code == 400
+        assert "must be greater than 0" in response.json()["error"]
+
+
+@pytest.mark.anyio
+async def test_dispatch_rejects_re_dispatching_same_wip(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        first = await json_request(
+            client,
+            "POST",
+            "/api/dispatch-jobs",
+            token=operator_token,
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-XRD-02",
+                "recipeId": "RCP-002",
+            },
+        )
+        assert first["state"]["jobs"][0]["status"] == "queued"
+        dispatched_wip = next(
+            wip
+            for req in first["state"]["requests"]
+            if req["id"] == "REQ-2026-002"
+            for wip in req["wips"]
+            if wip["id"] == "WIP-002-A"
+        )
+        assert dispatched_wip["status"] == "dispatched"
+
+        second = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-XRD-02",
+                "recipeId": "RCP-002",
+            },
+        )
+
+        assert second.status_code == 409
+        assert "Cannot dispatch request in status in_progress" in second.json()["error"]
+
+
+@pytest.mark.anyio
+async def test_audit_log_includes_action_and_target_metadata(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        await _prepare_received_request(client, sample_code="SMP-T-600", quantity=4)
+        operator_token = await login(client, "operator")
+
+        rows = await json_request(client, "GET", "/api/audit", token=operator_token)
+
+        recent_actions = [row.get("action") for row in rows if row.get("action")]
+        assert "request.receive" in recent_actions
+        assert "request.approve" in recent_actions
+        assert "request.create" in recent_actions
+
+        tagged = next(row for row in rows if row.get("action") == "request.receive")
+        assert tagged["targetType"] == "request"
+        assert tagged["targetId"].startswith("REQ-")
+        assert tagged["message"]
+        assert tagged["actor"]
+
+
 @pytest.mark.anyio
 async def test_alarm_can_be_simulated_and_acknowledged_by_operator(tmp_path):
     transport = httpx.ASGITransport(app=make_app(tmp_path))
