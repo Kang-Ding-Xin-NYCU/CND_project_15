@@ -9,6 +9,7 @@ const statusText = {
   completed: "已完成",
   closed: "已結案",
   queued: "待上貨",
+  dispatched: "已派貨",
   loaded: "已上貨",
   running: "執行中",
   failed: "失敗",
@@ -124,6 +125,22 @@ const pageTitles = {
   reports: "結果與統計"
 };
 
+const sectionRoles = {
+  dashboard: ["fab", "supervisor", "operator", "admin"],
+  requests: ["fab", "admin"],
+  approval: ["supervisor", "admin"],
+  lab: ["operator", "admin"],
+  equipment: ["operator", "admin"],
+  reports: ["fab", "supervisor", "operator", "admin"]
+};
+
+const uiState = {
+  splitRows: [{ quantity: 1, purpose: "" }],
+  splitRequestId: "",
+  machineEventEquipmentId: "",
+  machineEventType: "completed"
+};
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 const apiBaseUrl = (window.LIMS_API_BASE_URL || "").replace(/\/$/, "");
@@ -145,6 +162,33 @@ const authState = {
 
 function apiUrl(path) {
   return `${apiBaseUrl}${path}`;
+}
+
+function roleAllows(allowedRoles, role = state.currentRole) {
+  return role === "admin" || allowedRoles.includes(role);
+}
+
+function sectionAllowed(sectionId) {
+  return roleAllows(sectionRoles[sectionId] || []);
+}
+
+function currentActorName() {
+  return authState.user?.name || roleText[state.currentRole] || "Demo User";
+}
+
+function setHidden(element, hidden) {
+  if (!element) return;
+  if (hidden) {
+    element.classList.add("is-hidden");
+  } else {
+    element.classList.remove("is-hidden");
+  }
+}
+
+function dispatchableItemsForRequest(request) {
+  if (!request) return [];
+  const items = request.wips?.length ? request.wips : request.samples || [];
+  return items.filter((item) => item.status === "queued");
 }
 
 function statusPill(status) {
@@ -217,14 +261,14 @@ function formToObject(form) {
 
 function actorPayload(extra = {}) {
   return {
-    actor: roleText[state.currentRole] || "Demo User",
+    actor: currentActorName(),
     role: state.currentRole,
     ...extra
   };
 }
 
 function syncState(nextState) {
-  const currentRole = state.currentRole;
+  const currentRole = authState.user?.role || state.currentRole;
   Object.keys(state).forEach((key) => delete state[key]);
   Object.assign(state, nextState, { currentRole });
   renderAll();
@@ -253,7 +297,7 @@ const apiClient = {
     return payload;
   },
 
-  async action(path, options = {}) {
+  async action(path, options = {}, settings = {}) {
     if (!this.available) return false;
 
     try {
@@ -263,6 +307,9 @@ const apiClient = {
       return true;
     } catch (error) {
       if (error.status) {
+        if ((settings.fallbackOnStatuses || []).includes(error.status)) {
+          return false;
+        }
         console.error(error);
         if (error.status === 401) {
           clearSession();
@@ -295,6 +342,7 @@ function setSession(token, user) {
   window.localStorage.setItem("limsJwt", token);
   state.currentRole = user.role;
   $("#roleSelect").value = user.role;
+  $("#roleSelect").disabled = true;
   $("#userBadge").textContent = `${user.name}`;
 }
 
@@ -335,6 +383,10 @@ async function logout() {
 }
 
 function switchSection(sectionId) {
+  if (!sectionAllowed(sectionId)) {
+    const fallback = Object.keys(sectionRoles).find((item) => sectionAllowed(item)) || "dashboard";
+    sectionId = fallback;
+  }
   $$(".nav-item").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.section === sectionId);
   });
@@ -342,6 +394,26 @@ function switchSection(sectionId) {
     view.classList.toggle("is-active", view.id === sectionId);
   });
   $("#pageTitle").textContent = pageTitles[sectionId] || "Cloud LIMS";
+}
+
+function applyRoleVisibility() {
+  const allowedSections = Object.keys(sectionRoles).filter((sectionId) => sectionAllowed(sectionId));
+  const activeView = $(".view.is-active");
+  if (activeView && !sectionAllowed(activeView.id)) {
+    switchSection(allowedSections[0] || "dashboard");
+  }
+
+  $$(".nav-item").forEach((button) => {
+    setHidden(button, !sectionAllowed(button.dataset.section));
+  });
+
+  $$("[data-role-visible]").forEach((element) => {
+    const allowed = (element.dataset.roleVisible || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    setHidden(element, allowed.length > 0 && !roleAllows(allowed));
+  });
 }
 
 function renderMetrics() {
@@ -489,6 +561,7 @@ function renderApproval() {
   const requests = state.requests || [];
   const audit = state.audit || [];
   const pending = requests.filter((request) => request.status === "pending_approval");
+  const canApprove = roleAllows(["supervisor"]);
 
   $("#approvalQueue").innerHTML = pending.length
     ? pending
@@ -506,10 +579,10 @@ function renderApproval() {
               <li><strong>樣品：</strong>${request.samples.map((sample) => `${escapeHtml(sample.id)} ${escapeHtml(sample.material)}`).join(", ")}</li>
               <li><strong>需求日期：</strong>${escapeHtml(request.dueDate)}</li>
             </ul>
-            <div class="button-row">
+            ${canApprove ? `<div class="button-row">
               <button class="success-button" type="button" data-action="approve" data-request-id="${escapeHtml(request.id)}">✓ 核准</button>
               <button class="danger-button" type="button" data-action="reject" data-request-id="${escapeHtml(request.id)}">× 退回</button>
-            </div>
+            </div>` : ""}
           </article>
         `)
         .join("")
@@ -529,6 +602,7 @@ function renderApproval() {
 function renderReceiving() {
   const requests = state.requests || [];
   const actionable = requests.filter((request) => ["approved", "received", "split"].includes(request.status));
+  const canOperate = roleAllows(["operator"]);
 
   $("#receivingList").innerHTML = actionable.length
     ? actionable
@@ -537,13 +611,13 @@ function renderReceiving() {
             .map((sample) => `${escapeHtml(sample.id)} ${escapeHtml(sample.material)} x${sample.quantity}｜${statusText[sample.status] || escapeHtml(sample.status)}`)
             .join("<br>");
           const wipInfo = request.wips.length
-            ? request.wips.map((wip) => `${escapeHtml(wip.id)}｜${escapeHtml(wip.purpose)}｜${wip.quantity}`).join("<br>")
+            ? request.wips.map((wip) => `${escapeHtml(wip.id)}｜${escapeHtml(wip.purpose)}｜${wip.quantity}｜${statusText[wip.status] || escapeHtml(wip.status)}`).join("<br>")
             : "尚未分貨";
-          const receiveButton = request.status === "approved"
+          const receiveButton = canOperate && request.status === "approved"
             ? `<button class="success-button" type="button" data-action="receive" data-request-id="${escapeHtml(request.id)}">✓ 收件</button>`
             : "";
-          const splitButton = request.status === "received" && request.wips.length === 0
-            ? `<button class="warning-button" type="button" data-action="split" data-request-id="${escapeHtml(request.id)}">分貨</button>`
+          const splitButton = canOperate && request.status === "received" && request.wips.length === 0
+            ? `<button class="warning-button" type="button" data-action="select-split" data-request-id="${escapeHtml(request.id)}">分貨</button>`
             : "";
 
           return `
@@ -567,12 +641,101 @@ function renderReceiving() {
     : `<div class="empty-state">尚無可收件或可分貨的委託單</div>`;
 }
 
+function normalizeSplitRows(request, rows) {
+  const source = request?.samples?.[0];
+  if (!request || !source) {
+    throw new Error("找不到可分貨的樣品");
+  }
+  if (!rows.length) {
+    throw new Error("至少需要 1 筆 WIP");
+  }
+  if (rows.length > 26) {
+    throw new Error("最多只能分成 26 筆 WIP");
+  }
+
+  const sampleQuantity = Number(source.quantity) || 0;
+  const wips = rows.map((row, index) => {
+    const quantity = Number(row.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error(`第 ${index + 1} 筆 WIP 數量需為正整數`);
+    }
+    return {
+      quantity,
+      purpose: String(row.purpose || `${request.labType} split`).trim() || `${request.labType} split`
+    };
+  });
+  const totalQuantity = wips.reduce((total, row) => total + row.quantity, 0);
+  if (totalQuantity > sampleQuantity) {
+    throw new Error(`WIP 總量 ${totalQuantity} 不可超過樣品數量 ${sampleQuantity}`);
+  }
+  return { source, sampleQuantity, totalQuantity, wips };
+}
+
+function readSplitRows() {
+  return $$("#splitRows .split-row").map((row) => ({
+    quantity: row.querySelector('[name="quantity"]').value,
+    purpose: row.querySelector('[name="purpose"]').value
+  }));
+}
+
+function renderSplitForm() {
+  const requests = state.requests || [];
+  const candidates = requests.filter((request) => request.status === "received" && !request.wips?.length);
+  const requestSelect = $("#splitRequest");
+  const selectedId = uiState.splitRequestId || requestSelect.value;
+
+  requestSelect.innerHTML = candidates.length
+    ? candidates.map((request) => `<option value="${escapeHtml(request.id)}">${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</option>`).join("")
+    : `<option value="">沒有可分貨委託單</option>`;
+
+  const selectedRequest = candidates.find((request) => request.id === selectedId) || candidates[0];
+  uiState.splitRequestId = selectedRequest?.id || "";
+  if (selectedRequest) {
+    requestSelect.value = selectedRequest.id;
+  }
+
+  const source = selectedRequest?.samples?.[0];
+  const disabled = !selectedRequest || !source;
+  requestSelect.disabled = disabled;
+  $("#addSplitRowButton").disabled = disabled;
+  const submitButton = $("#manualSplitForm").querySelector?.('button[type="submit"]');
+  if (submitButton) submitButton.disabled = disabled;
+
+  if (disabled) {
+    $("#splitSummary").textContent = "";
+    $("#splitRows").innerHTML = `<div class="empty-state compact-empty">目前沒有 received 且尚未分貨的委託單</div>`;
+    return;
+  }
+
+  if (!uiState.splitRows.length) {
+    uiState.splitRows = [{ quantity: source?.quantity || 1, purpose: `${selectedRequest.labType} split` }];
+  }
+
+  const total = uiState.splitRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+  $("#splitSummary").textContent = `${source.id}｜${source.material}｜樣品數量 ${source.quantity}｜已配置 ${total}`;
+  $("#splitRows").innerHTML = uiState.splitRows
+    .map((row, index) => `
+      <div class="split-row" data-split-index="${index}">
+        <label>
+          數量
+          <input name="quantity" type="number" min="1" step="1" value="${escapeHtml(String(row.quantity || 1))}" required>
+        </label>
+        <label>
+          用途
+          <input name="purpose" type="text" value="${escapeHtml(row.purpose || `${selectedRequest.labType} split`)}" required>
+        </label>
+        <button class="ghost-button compact-button" type="button" data-action="remove-split-row" data-split-index="${index}">移除</button>
+      </div>
+    `)
+    .join("");
+}
+
 function renderDispatchOptions() {
   const requests = state.requests || [];
   const equipment = state.equipment || [];
   const requestSelect = $("#dispatchRequest");
   const selectedRequestId = requestSelect.value;
-  const dispatchable = requests.filter((request) => ["received", "split"].includes(request.status));
+  const dispatchable = requests.filter((request) => ["received", "split"].includes(request.status) && dispatchableItemsForRequest(request).length);
   requestSelect.innerHTML = dispatchable.length
     ? dispatchable.map((request) => `<option value="${escapeHtml(request.id)}">${escapeHtml(request.id)}｜${escapeHtml(request.labType)}</option>`).join("")
     : `<option value="">沒有可派貨項目</option>`;
@@ -583,8 +746,8 @@ function renderDispatchOptions() {
 
   const selectedRequest = requestById(requestSelect.value);
   const wipOptions = selectedRequest
-    ? (selectedRequest.wips.length ? selectedRequest.wips : selectedRequest.samples).map((item) => `
-        <option value="${escapeHtml(item.id)}">${escapeHtml(item.id)}｜${item.quantity || 1}</option>
+    ? dispatchableItemsForRequest(selectedRequest).map((item) => `
+        <option value="${escapeHtml(item.id)}">${escapeHtml(item.id)}｜${item.quantity || 1}｜${statusText[item.status] || item.status}</option>
       `)
     : [];
   $("#dispatchWip").innerHTML = wipOptions.join("") || `<option value="">請先收件</option>`;
@@ -645,6 +808,7 @@ function renderJobs() {
 function renderEquipment() {
   const equipment = state.equipment || [];
   const recipes = state.recipes || [];
+  const canOperate = roleAllows(["operator"]);
   $("#equipmentList").innerHTML = equipment.length
     ? equipment
         .map((machine) => `
@@ -656,11 +820,11 @@ function renderEquipment() {
               </div>
               ${statusPill(machine.status)}
             </div>
-            <div class="button-row">
+            ${canOperate ? `<div class="button-row">
               <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>
               <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="maintenance">保養</button>
               <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="alarm">異常</button>
-            </div>
+            </div>` : ""}
           </article>
         `)
         .join("")
@@ -688,10 +852,41 @@ function renderEquipment() {
     .join("");
 }
 
+function renderMachineEventOptions() {
+  const equipment = state.equipment || [];
+  const jobs = state.jobs || [];
+  const equipmentSelect = $("#machineEventEquipment");
+  const typeSelect = $("#machineEventType");
+  const jobSelect = $("#machineEventJob");
+
+  const selectedEquipmentId = uiState.machineEventEquipmentId || equipmentSelect.value;
+  equipmentSelect.innerHTML = equipment.length
+    ? equipment.map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}｜${statusText[machine.status] || machine.status}</option>`).join("")
+    : `<option value="">沒有機台資料</option>`;
+  const selectedMachine = equipment.find((machine) => machine.id === selectedEquipmentId) || equipment[0];
+  uiState.machineEventEquipmentId = selectedMachine?.id || "";
+  if (selectedMachine) equipmentSelect.value = selectedMachine.id;
+
+  const eventType = uiState.machineEventType || typeSelect.value || "completed";
+  typeSelect.value = eventType;
+
+  const selectableJobs = jobs.filter((job) => (
+    job.equipmentId === equipmentSelect.value
+    && (eventType === "measurement" || ["running", "loaded"].includes(job.status))
+  ));
+  jobSelect.innerHTML = eventType === "alarm"
+    ? `<option value="">不需 Job</option>`
+    : (selectableJobs.length
+        ? selectableJobs.map((job) => `<option value="${escapeHtml(job.id)}">${escapeHtml(job.id)}｜${statusText[job.status] || job.status}</option>`).join("")
+        : `<option value="">沒有可用 Job</option>`);
+  jobSelect.disabled = eventType === "alarm";
+}
+
 function renderReports() {
   const results = state.results || [];
   const equipment = state.equipment || [];
   const alarms = state.alarms || [];
+  const canOperate = roleAllows(["operator"]);
 
   // Result stat bar
   const closedResults = results.filter((r) => {
@@ -711,7 +906,7 @@ function renderReports() {
         .map((result) => {
           const request = requestById(result.requestId);
           const job = result.jobId ? jobById(result.jobId) : null;
-          const closeButton = request && request.status !== "closed"
+          const closeButton = canOperate && request && request.status !== "closed"
             ? `<button class="success-button" type="button" data-action="close-request" data-request-id="${escapeHtml(request.id)}">結案</button>`
             : "";
           return `
@@ -789,7 +984,7 @@ function renderReports() {
                 ${ackInfo}
               </ul>
               <div class="button-row">
-                ${alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${escapeHtml(alarm.id)}">確認處理</button>` : ""}
+                ${canOperate && alarm.status === "alarm" ? `<button class="success-button" type="button" data-action="ack-alarm" data-alarm-id="${escapeHtml(alarm.id)}">確認處理</button>` : ""}
               </div>
             </article>
           `;
@@ -800,6 +995,10 @@ function renderReports() {
 
 function renderAll() {
   $("#roleBadge").textContent = roleText[state.currentRole];
+  if (authState.user) {
+    $("#userBadge").textContent = authState.user.name;
+  }
+  applyRoleVisibility();
   renderMetrics();
   renderDashboardStatusChart();
   renderDashboardUtilization();
@@ -808,9 +1007,11 @@ function renderAll() {
   renderMachineSummary();
   renderApproval();
   renderReceiving();
+  renderSplitForm();
   renderDispatchOptions();
   renderJobs();
   renderEquipment();
+  renderMachineEventOptions();
   renderReports();
 }
 
@@ -896,35 +1097,56 @@ async function receiveRequest(id) {
   renderAll();
 }
 
-async function splitRequest(id) {
-  if (await apiClient.action(`/api/requests/${encodeURIComponent(id)}/split`, {
-    method: "POST",
-    body: JSON.stringify(actorPayload())
-  })) return;
-
-  const request = requestById(id);
-  if (!request || request.wips.length) return;
+function applyManualSplit(request, wips) {
   const source = request.samples[0];
-  const total = Math.max(1, Number(source.quantity) || 1);
-  const firstQty = total === 1 ? 1 : Math.floor(total / 2);
-  const secondQty = total - firstQty;
   request.status = "split";
   source.status = "split";
-  request.wips = [
-    { id: `${source.id}-A`, source: source.id, quantity: firstQty, purpose: `${request.labType} primary`, status: "queued" }
-  ];
-  if (secondQty > 0) {
-    request.wips.push({ id: `${source.id}-B`, source: source.id, quantity: secondQty, purpose: `${request.labType} backup`, status: "queued" });
-  }
-  addAudit(`${id} 已分貨為 ${request.wips.map((wip) => wip.id).join(", ")}`);
-  showToast(`${id} 已建立 WIP`);
+  request.wips = wips.map((wip, index) => ({
+    id: `${source.id}-${String.fromCharCode(65 + index)}`,
+    source: source.id,
+    quantity: wip.quantity,
+    purpose: wip.purpose,
+    status: "queued"
+  }));
+  addAudit(`${request.id} 已分貨為 ${request.wips.map((wip) => wip.id).join(", ")}`);
+  showToast(`${request.id} 已建立 WIP`);
+  uiState.splitRows = [{ quantity: 1, purpose: "" }];
+  uiState.splitRequestId = "";
   renderAll();
+}
+
+async function splitRequest(id, wips = null) {
+  const request = requestById(id);
+  if (!request || request.wips.length) return;
+  const rows = wips || [
+    { quantity: Math.max(1, Number(request.samples[0]?.quantity) || 1), purpose: `${request.labType} split` }
+  ];
+  let normalized;
+  try {
+    normalized = normalizeSplitRows(request, rows);
+  } catch (error) {
+    showToast(error.message);
+    return;
+  }
+
+  if (await apiClient.action(`/api/requests/${encodeURIComponent(id)}/split`, {
+    method: "POST",
+    body: JSON.stringify(actorPayload({ wips: normalized.wips }))
+  })) return;
+
+  applyManualSplit(request, normalized.wips);
+}
+
+async function submitManualSplit(form) {
+  uiState.splitRows = readSplitRows();
+  const requestId = new FormData(form).get("requestId");
+  await splitRequest(requestId, uiState.splitRows);
 }
 
 async function createDispatchJob(form) {
   const payload = actorPayload({
     ...formToObject(form),
-    operator: roleText[state.currentRole]
+    operator: currentActorName()
   });
   if (await apiClient.action("/api/dispatch-jobs", {
     method: "POST",
@@ -933,10 +1155,17 @@ async function createDispatchJob(form) {
 
   const data = new FormData(form);
   const requestId = data.get("requestId");
+  const wipId = data.get("wipId");
   const equipmentId = data.get("equipmentId");
   const recipeId = data.get("recipeId");
-  if (!requestId || !equipmentId || !recipeId) {
+  if (!requestId || !wipId || !equipmentId || !recipeId) {
     showToast("請先選擇可派貨的委託單、機台與 Recipe");
+    return;
+  }
+  const request = requestById(requestId);
+  const target = dispatchableItemsForRequest(request).find((item) => item.id === wipId);
+  if (!target) {
+    showToast(`WIP ${wipId || ""} 目前不可派貨`);
     return;
   }
 
@@ -945,21 +1174,20 @@ async function createDispatchJob(form) {
   const job = {
     id,
     requestId,
-    wipId: data.get("wipId"),
+    wipId,
     equipmentId,
     recipeId,
-    operator: roleText[state.currentRole],
+    operator: currentActorName(),
     status: "queued",
     note: data.get("note").trim(),
     history: [{ action: "dispatch", actor: roleText[state.currentRole], occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "派貨" }]
   };
   state.jobs.unshift(job);
 
-  const request = requestById(requestId);
   if (request) {
     request.status = "in_progress";
     [...request.wips, ...request.samples].forEach((item) => {
-      if (item.id === job.wipId) item.status = "queued";
+      if (item.id === job.wipId) item.status = "dispatched";
     });
   }
 
@@ -968,45 +1196,20 @@ async function createDispatchJob(form) {
   renderAll();
 }
 
-async function loadJob(id) {
-  if (await apiClient.action(`/api/dispatch-jobs/${encodeURIComponent(id)}/load`, {
-    method: "POST",
-    body: JSON.stringify(actorPayload())
-  })) return;
-
-  const job = jobById(id);
-  if (!job) return;
-  job.status = "running";
-  job.history.push({ action: "load", actor: roleText[state.currentRole], occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "上貨" });
-  const machine = state.equipment.find((item) => item.id === job.equipmentId);
-  if (machine) {
-    machine.status = "busy";
-    machine.utilization = Math.min(96, machine.utilization + 8);
-  }
-  const request = requestById(job.requestId);
-  request && [...request.wips, ...request.samples].forEach((item) => {
-    if (item.id === job.wipId) item.status = "loaded";
-  });
-  addAudit(`${job.id} 已上貨並開始實驗`);
-  showToast(`${job.id} 已上貨`);
-  renderAll();
-}
-
-async function unloadJob(id) {
-  if (await apiClient.action(`/api/dispatch-jobs/${encodeURIComponent(id)}/unload`, {
-    method: "POST",
-    body: JSON.stringify(actorPayload())
-  })) return;
-
-  const job = jobById(id);
-  if (!job) return;
+function completeJobLocally(job, actor, historyAction, historyNote, auditNote) {
   job.status = "completed";
-  job.history.push({ action: "unload", actor: roleText[state.currentRole], occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "下貨與數據回收" });
+  job.history = job.history || [];
+  job.history.push({
+    action: historyAction,
+    actor,
+    occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }),
+    note: historyNote
+  });
 
   const machine = state.equipment.find((item) => item.id === job.equipmentId);
   if (machine) {
     machine.status = "idle";
-    machine.utilization = Math.min(99, machine.utilization + 5);
+    machine.utilization = Math.min(99, Number(machine.utilization || 0) + 5);
   }
 
   const request = requestById(job.requestId);
@@ -1031,9 +1234,50 @@ async function unloadJob(id) {
     });
   }
 
-  addAudit(`${job.id} 完成下貨，實驗數據已回收並自動結案`);
-  showToast(`${job.id} 已完成，資料已回收並自動結案`);
+  addAudit(auditNote);
   renderAll();
+}
+
+async function loadJob(id) {
+  if (await apiClient.action(`/api/dispatch-jobs/${encodeURIComponent(id)}/load`, {
+    method: "POST",
+    body: JSON.stringify(actorPayload())
+  })) return;
+
+  const job = jobById(id);
+  if (!job) return;
+  job.status = "running";
+  job.history.push({ action: "load", actor: currentActorName(), occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "上貨" });
+  const machine = state.equipment.find((item) => item.id === job.equipmentId);
+  if (machine) {
+    machine.status = "busy";
+    machine.utilization = Math.min(96, machine.utilization + 8);
+  }
+  const request = requestById(job.requestId);
+  request && [...request.wips, ...request.samples].forEach((item) => {
+    if (item.id === job.wipId) item.status = "loaded";
+  });
+  addAudit(`${job.id} 已上貨並開始實驗`);
+  showToast(`${job.id} 已上貨`);
+  renderAll();
+}
+
+async function unloadJob(id) {
+  if (await apiClient.action(`/api/dispatch-jobs/${encodeURIComponent(id)}/unload`, {
+    method: "POST",
+    body: JSON.stringify(actorPayload())
+  })) return;
+
+  const job = jobById(id);
+  if (!job) return;
+  completeJobLocally(
+    job,
+    currentActorName(),
+    "unload",
+    "下貨與數據回收",
+    `${job.id} 完成下貨，實驗數據已回收並自動結案`
+  );
+  showToast(`${job.id} 已完成，資料已回收並自動結案`);
 }
 
 async function changeMachineStatus(id, status) {
@@ -1128,6 +1372,120 @@ async function simulateAlarm() {
   changeMachineStatus(machine.id, "alarm");
 }
 
+function machineEventPayloadFromFields(fields) {
+  const eventType = String(fields.eventType || "completed");
+  const payload = {};
+  if (eventType === "alarm") {
+    payload.severity = fields.severity || "Medium";
+    payload.message = fields.message || "Machine reported an alarm";
+  } else if (eventType === "measurement") {
+    payload.metric = fields.metric || "measurement";
+    if (fields.value !== "" && fields.value !== undefined) {
+      payload.value = Number(fields.value);
+    }
+    payload.note = fields.message || "Measurement event";
+  } else {
+    payload.note = fields.message || "Machine completed event";
+  }
+
+  const event = {
+    equipmentId: fields.equipmentId,
+    eventType,
+    payload,
+    actor: fields.actor || currentActorName()
+  };
+  if (eventType !== "alarm") {
+    event.jobId = fields.jobId;
+  }
+  return event;
+}
+
+function buildMachineEventPayload(form) {
+  const fields = formToObject(form);
+  fields.actor = currentActorName();
+  return machineEventPayloadFromFields(fields);
+}
+
+function applyMachineEventFallback(event) {
+  const machine = state.equipment.find((item) => item.id === event.equipmentId);
+  if (!machine) {
+    showToast("找不到指定機台");
+    return;
+  }
+
+  if (event.eventType === "completed") {
+    const job = jobById(event.jobId);
+    if (!job || job.equipmentId !== machine.id || !["running", "loaded"].includes(job.status)) {
+      showToast("completed event 需要同機台且執行中的 Job");
+      return;
+    }
+    completeJobLocally(
+      job,
+      event.actor,
+      "machine.completed",
+      event.payload.note || "Machine completed event",
+      `${machine.name} 回報 ${job.id} 完成`
+    );
+    showToast("event processed");
+    return;
+  }
+
+  if (event.eventType === "alarm") {
+    machine.status = "alarm";
+    const alarmId = `ALM-${String(state.alarmSeq).padStart(3, "0")}`;
+    state.alarmSeq += 1;
+    state.alarms.unshift({
+      id: alarmId,
+      equipmentId: machine.id,
+      severity: event.payload.severity || "Medium",
+      message: event.payload.message || `${machine.name} reported an alarm`,
+      status: "alarm"
+    });
+    addAudit(`${machine.name} machine event 建立告警 ${alarmId}`);
+    showToast("event processed");
+    renderAll();
+    return;
+  }
+
+  if (event.eventType === "measurement") {
+    const job = jobById(event.jobId);
+    if (!job || job.equipmentId !== machine.id) {
+      showToast("measurement event 需要同機台 Job");
+      return;
+    }
+    job.history = job.history || [];
+    job.history.push({
+      action: "machine.measurement",
+      actor: event.actor,
+      occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }),
+      note: event.payload.note || "Measurement event",
+      payload: event.payload
+    });
+    addAudit(`${machine.name} measurement 已寫入 ${job.id}`);
+    showToast("event processed");
+    renderAll();
+  }
+}
+
+async function processMachineEvent(form) {
+  const event = buildMachineEventPayload(form);
+  if (!event.equipmentId) {
+    showToast("請先選擇機台");
+    return;
+  }
+  if (event.eventType !== "alarm" && !event.jobId) {
+    showToast(`${event.eventType} event 需要 Job`);
+    return;
+  }
+
+  if (await apiClient.action("/api/machine-events", {
+    method: "POST",
+    body: JSON.stringify(event)
+  }, { fallbackOnStatuses: [404, 405] })) return;
+
+  applyMachineEventFallback(event);
+}
+
 async function boot() {
   if (!apiClient.available) {
     renderAll();
@@ -1166,11 +1524,22 @@ document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-action]");
   if (!actionButton) return;
 
-  const { action, requestId, jobId, equipmentId, status, alarmId, recipeId } = actionButton.dataset;
+  const { action, requestId, jobId, equipmentId, status, alarmId, recipeId, splitIndex } = actionButton.dataset;
   if (action === "approve") approveRequest(requestId);
   if (action === "reject") rejectRequest(requestId);
   if (action === "receive") receiveRequest(requestId);
   if (action === "split") splitRequest(requestId);
+  if (action === "select-split") {
+    uiState.splitRequestId = requestId;
+    uiState.splitRows = [{ quantity: 1, purpose: "" }];
+    switchSection("lab");
+    renderSplitForm();
+  }
+  if (action === "remove-split-row") {
+    uiState.splitRows = readSplitRows().filter((_row, index) => index !== Number(splitIndex));
+    if (!uiState.splitRows.length) uiState.splitRows = [{ quantity: 1, purpose: "" }];
+    renderSplitForm();
+  }
   if (action === "load") loadJob(jobId);
   if (action === "unload") unloadJob(jobId);
   if (action === "machine-status") changeMachineStatus(equipmentId, status);
@@ -1199,9 +1568,19 @@ $("#dispatchForm").addEventListener("submit", (event) => {
   createDispatchJob(event.currentTarget);
 });
 
+$("#manualSplitForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitManualSplit(event.currentTarget);
+});
+
 $("#recipeForm").addEventListener("submit", (event) => {
   event.preventDefault();
   createRecipe(event.currentTarget);
+});
+
+$("#machineEventForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  processMachineEvent(event.currentTarget);
 });
 
 async function deactivateRecipe(id) {
@@ -1220,10 +1599,23 @@ async function deactivateRecipe(id) {
 
 $("#dispatchRequest").addEventListener("change", renderDispatchOptions);
 $("#dispatchEquipment").addEventListener("change", renderRecipeOptions);
-$("#roleSelect").addEventListener("change", (event) => {
-  state.currentRole = event.target.value;
-  showToast(`角色已切換為 ${roleText[state.currentRole]}`);
-  renderAll();
+$("#splitRequest").addEventListener("change", (event) => {
+  uiState.splitRequestId = event.target.value;
+  uiState.splitRows = [{ quantity: 1, purpose: "" }];
+  renderSplitForm();
+});
+$("#addSplitRowButton").addEventListener("click", () => {
+  uiState.splitRows = readSplitRows();
+  uiState.splitRows.push({ quantity: 1, purpose: "" });
+  renderSplitForm();
+});
+$("#machineEventEquipment").addEventListener("change", (event) => {
+  uiState.machineEventEquipmentId = event.target.value;
+  renderMachineEventOptions();
+});
+$("#machineEventType").addEventListener("change", (event) => {
+  uiState.machineEventType = event.target.value;
+  renderMachineEventOptions();
 });
 $("#createAlarmButton").addEventListener("click", simulateAlarm);
 
@@ -1232,6 +1624,7 @@ boot();
 if (typeof module !== "undefined") {
   module.exports = {
     escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
+    roleAllows, sectionAllowed, normalizeSplitRows, machineEventPayloadFromFields, dispatchableItemsForRequest,
     renderDashboardStatusChart, renderDashboardUtilization, renderDashboardTimeline,
     renderReports, renderRequestTables, renderMachineSummary, renderEquipment
   };

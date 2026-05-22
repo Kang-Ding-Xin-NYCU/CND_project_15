@@ -21,6 +21,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
+  roleAllows, sectionAllowed, normalizeSplitRows, machineEventPayloadFromFields, dispatchableItemsForRequest,
   renderDashboardStatusChart, renderDashboardUtilization, renderReports
 } = require("../app");
 
@@ -121,6 +122,101 @@ test("statusText should contain all expected status translations", () => {
   assert.equal(statusText.pending_approval, "待簽核");
   assert.equal(statusText.completed, "已完成");
   assert.equal(statusText.running, "執行中");
+  assert.equal(statusText.dispatched, "已派貨");
+});
+
+// ==================== Role-driven UI helpers ====================
+test("roleAllows should let admin pass every role-gated UI check", () => {
+  assert.equal(roleAllows(["operator"], "operator"), true);
+  assert.equal(roleAllows(["operator"], "fab"), false);
+  assert.equal(roleAllows(["operator"], "admin"), true);
+});
+
+test("sectionAllowed should follow current JWT role state", () => {
+  const previousRole = state.currentRole;
+  state.currentRole = "fab";
+  assert.equal(sectionAllowed("requests"), true);
+  assert.equal(sectionAllowed("lab"), false);
+
+  state.currentRole = "operator";
+  assert.equal(sectionAllowed("lab"), true);
+  assert.equal(sectionAllowed("approval"), false);
+  state.currentRole = previousRole;
+});
+
+// ==================== Manual split helpers ====================
+test("normalizeSplitRows should build contract-compatible WIP payload", () => {
+  const request = {
+    id: "REQ-1",
+    labType: "SEM",
+    samples: [{ id: "SMP-1", quantity: 4 }]
+  };
+  const result = normalizeSplitRows(request, [
+    { quantity: "2", purpose: "SEM primary" },
+    { quantity: 1, purpose: "" }
+  ]);
+
+  assert.equal(result.totalQuantity, 3);
+  assert.deepEqual(result.wips, [
+    { quantity: 2, purpose: "SEM primary" },
+    { quantity: 1, purpose: "SEM split" }
+  ]);
+});
+
+test("normalizeSplitRows should reject impossible WIP quantities", () => {
+  const request = {
+    id: "REQ-1",
+    labType: "XRD",
+    samples: [{ id: "SMP-1", quantity: 2 }]
+  };
+
+  assert.throws(() => normalizeSplitRows(request, [{ quantity: 0, purpose: "bad" }]), /正整數/);
+  assert.throws(() => normalizeSplitRows(request, [{ quantity: 3, purpose: "too much" }]), /不可超過/);
+});
+
+test("dispatchableItemsForRequest should only expose queued WIPs", () => {
+  const request = {
+    wips: [
+      { id: "WIP-A", status: "queued" },
+      { id: "WIP-B", status: "dispatched" }
+    ],
+    samples: [{ id: "SMP-1", status: "received" }]
+  };
+
+  assert.deepEqual(dispatchableItemsForRequest(request).map((item) => item.id), ["WIP-A"]);
+});
+
+// ==================== Machine event helpers ====================
+test("machineEventPayloadFromFields should build completed event payload", () => {
+  const payload = machineEventPayloadFromFields({
+    equipmentId: "EQ-SEM-01",
+    eventType: "completed",
+    jobId: "JOB-1",
+    message: "done",
+    actor: "Machine"
+  });
+
+  assert.deepEqual(payload, {
+    equipmentId: "EQ-SEM-01",
+    eventType: "completed",
+    jobId: "JOB-1",
+    payload: { note: "done" },
+    actor: "Machine"
+  });
+});
+
+test("machineEventPayloadFromFields should omit jobId for alarm events", () => {
+  const payload = machineEventPayloadFromFields({
+    equipmentId: "EQ-PROBE-04",
+    eventType: "alarm",
+    severity: "High",
+    message: "Probe warning",
+    actor: "Machine"
+  });
+
+  assert.equal(payload.jobId, undefined);
+  assert.equal(payload.payload.severity, "High");
+  assert.equal(payload.payload.message, "Probe warning");
 });
 
 // ==================== XSS safety in helpers ====================
@@ -176,11 +272,11 @@ test("renderReports should display formatted result and alarm data", () => {
   renderReports();
   const resultHtml = global.domNodes["#resultList"].innerHTML;
   const alarmHtml = global.domNodes["#alarmList"].innerHTML;
-  
+
   assert.ok(resultHtml.includes("RES-1"), "Should display result ID");
   assert.ok(resultHtml.includes("2026/05/20 10:00:00"), "Should display created time");
   assert.ok(resultHtml.includes('class="result-meta-code"'), "Should use code block style for paths");
-  
+
   assert.ok(alarmHtml.includes("ALM-1"), "Should display alarm ID");
   assert.ok(alarmHtml.includes("severity-High"), "Should display severity class");
 });
@@ -188,7 +284,7 @@ test("renderReports should display formatted result and alarm data", () => {
 // ==================== Extended Edge Case Tests ====================
 test("Defensive State Null-Safety: render functions should survive null states", () => {
   const originalState = { ...state };
-  
+
   // Simulate API returning nulls
   state.requests = null;
   state.equipment = null;
@@ -215,13 +311,13 @@ test("Utilization Boundary Defense: Should restrict out-of-bound and NaN utiliza
     { id: "EQ-2", name: "Eq 2", status: "idle", utilization: 150 },
     { id: "EQ-3", name: "Eq 3", status: "idle", utilization: "invalid" }
   ];
-  
+
   renderDashboardUtilization();
   const html = global.domNodes["#dashboardUtilization"].innerHTML;
-  
+
   assert.ok(html.includes("width: 0%"), "Negative utilization should be clamped to 0%");
   assert.ok(html.includes("width: 100%"), "Over-100 utilization should be clamped to 100%");
-  
+
   const zeroCount = (html.match(/width: 0%/g) || []).length;
   assert.equal(zeroCount, 2, "Both negative and invalid utilizations should be clamped to 0%");
 });
@@ -229,18 +325,17 @@ test("Utilization Boundary Defense: Should restrict out-of-bound and NaN utiliza
 test("HTML Attribute XSS Defense: data-* attributes should be escaped", () => {
   const evilId = 'REQ-"onclick="alert(1)"';
   state.requests = [{ id: evilId, status: "completed", samples: [], wips: [] }];
-  state.results = [{ 
-    id: "RES-1", 
-    requestId: evilId, 
-    summary: "Test", 
-    rawData: "path", 
-    report: "path" 
+  state.results = [{
+    id: "RES-1",
+    requestId: evilId,
+    summary: "Test",
+    rawData: "path",
+    report: "path"
   }];
-  
+
   renderReports();
   const html = global.domNodes["#resultList"].innerHTML;
-  
+
   assert.ok(!html.includes(`data-request-id="${evilId}"`), "Should not contain unescaped attribute injection");
   assert.ok(html.includes("&quot;"), "Should escape quotes in data-request-id attribute");
 });
-

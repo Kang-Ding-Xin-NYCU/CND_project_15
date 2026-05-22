@@ -296,6 +296,11 @@ h3 {
   align-items: start;
 }
 
+.workflow-column {
+  display: grid;
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   padding: 18px;
@@ -453,6 +458,33 @@ textarea {
   margin-top: 10px;
 }
 
+.form-note {
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.split-row-list {
+  display: grid;
+  gap: 10px;
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.35fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.compact-empty {
+  min-height: 74px;
+}
+
 .stack-list,
 .timeline,
 .job-grid,
@@ -554,7 +586,8 @@ textarea {
 .status-in_progress,
 .status-running,
 .status-busy,
-.status-loaded {
+.status-loaded,
+.status-dispatched {
   background: #eff6ff;
   color: var(--blue);
 }
@@ -812,6 +845,7 @@ h1, h2, h3, p, td {
   .metric-grid,
   .machine-grid,
   .form-grid,
+  .split-row,
   .job-grid,
   .dashboard-triple-grid {
     grid-template-columns: 1fr;
