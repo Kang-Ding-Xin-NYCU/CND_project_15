@@ -102,6 +102,8 @@ npm run start:frontend
 - 登入取得 JWT：`POST /api/auth/login`
 - 查詢目前登入者：`GET /api/auth/me`
 - 登出並撤銷 Redis session：`POST /api/auth/logout`
+- 登入者自行更換密碼：`PATCH /api/auth/password`
+- 管理員建立帳號、查詢 / 指派使用者角色：`POST /api/users`、`GET /api/users`、`PATCH /api/users/:id/role`
 - 建立委託單並送出簽核：`POST /api/requests`
 - 主管核准 / 退回：`POST /api/requests/:id/approve`、`POST /api/requests/:id/reject`
 - 實驗室收件：`POST /api/requests/:id/receive`
@@ -109,6 +111,7 @@ npm run start:frontend
 - 建立派貨任務：`POST /api/dispatch-jobs`
 - 上貨、下貨、回收資料、自動結案：`POST /api/dispatch-jobs/:id/load`、`POST /api/dispatch-jobs/:id/unload`
 - 機台狀態管理：`POST /api/equipment/:id/status`
+- 主管設定機台種類與台數：`PUT /api/equipment/types`
 - 新增 Recipe：`POST /api/recipes`
 - 模擬告警與確認處理：`POST /api/alarms/simulate`、`POST /api/alarms/:id/ack`
 - 取得目前完整狀態：`GET /api/state`

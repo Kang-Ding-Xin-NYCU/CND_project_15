@@ -31,12 +31,42 @@ def request_by_id(state: dict[str, Any], request_id: str) -> dict[str, Any] | No
     return next((request for request in state["requests"] if request["id"] == request_id), None)
 
 
+def user_by_id(state: dict[str, Any], user_id: str) -> dict[str, Any] | None:
+    return next((user for user in state["users"] if user["id"] == user_id), None)
+
+
 def job_by_id(state: dict[str, Any], job_id: str) -> dict[str, Any] | None:
     return next((job for job in state["jobs"] if job["id"] == job_id), None)
 
 
 def machine_by_id(state: dict[str, Any], equipment_id: str) -> dict[str, Any] | None:
     return next((machine for machine in state["equipment"] if machine["id"] == equipment_id), None)
+
+
+def machine_type(machine: dict[str, Any]) -> str:
+    explicit_type = str(machine.get("type") or "").strip()
+    if explicit_type:
+        return explicit_type
+    raw_id = str(machine.get("id") or "")
+    parts = raw_id.split("-")
+    if len(parts) >= 3 and parts[0] == "EQ":
+        return parts[1]
+    return str(machine.get("name") or raw_id or "UNKNOWN").split("-")[0]
+
+
+def refresh_equipment_utilization(state: dict[str, Any]) -> None:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for machine in state.get("equipment", []):
+        if machine.get("status") == "busy":
+            machine["status"] = "running"
+        groups.setdefault(machine_type(machine), []).append(machine)
+
+    for machines in groups.values():
+        total = len(machines)
+        running = sum(1 for machine in machines if machine.get("status") == "running")
+        utilization = round((running / total) * 100) if total else 0
+        for machine in machines:
+            machine["utilization"] = utilization
 
 
 def recipe_by_id(state: dict[str, Any], recipe_id: str) -> dict[str, Any] | None:

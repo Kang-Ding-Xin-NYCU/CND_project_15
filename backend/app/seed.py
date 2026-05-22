@@ -71,22 +71,22 @@ def create_initial_state() -> dict[str, Any]:
             },
         ],
         "equipment": [
-            {"id": "EQ-SEM-01", "name": "SEM-01", "area": "Lab A", "capability": "Defect review", "status": "idle", "utilization": 62},
-            {"id": "EQ-XRD-02", "name": "XRD-02", "area": "Lab B", "capability": "Thin film stress", "status": "idle", "utilization": 48},
-            {"id": "EQ-FTIR-03", "name": "FTIR-03", "area": "Lab C", "capability": "Contamination scan", "status": "busy", "utilization": 81},
-            {"id": "EQ-PROBE-04", "name": "Probe-04", "area": "Lab D", "capability": "Electrical probe", "status": "alarm", "utilization": 35},
+            {"id": "EQ-SEM-01", "type": "SEM", "name": "SEM-01", "area": "Lab A", "capability": "Defect review", "status": "idle", "utilization": 0},
+            {"id": "EQ-XRD-01", "type": "XRD", "name": "XRD-01", "area": "Lab B", "capability": "Thin film stress", "status": "idle", "utilization": 0},
+            {"id": "EQ-FTIR-01", "type": "FTIR", "name": "FTIR-01", "area": "Lab C", "capability": "Contamination scan", "status": "running", "utilization": 100},
+            {"id": "EQ-PROBE-01", "type": "PROBE", "name": "Probe-01", "area": "Lab D", "capability": "Electrical probe", "status": "alarm", "utilization": 0},
         ],
         "recipes": [
-            {"id": "RCP-001", "equipmentId": "EQ-SEM-01", "name": "Defect Review Standard", "version": "1.2.0", "parameters": "voltage=3kV; dwell=30ms", "active": True},
-            {"id": "RCP-002", "equipmentId": "EQ-XRD-02", "name": "Thin Film Stress Scan", "version": "2.1.0", "parameters": "angle=20-80; step=0.02", "active": True},
-            {"id": "RCP-003", "equipmentId": "EQ-FTIR-03", "name": "Contamination Quick Scan", "version": "1.4.3", "parameters": "range=400-4000; resolution=4", "active": True},
+            {"id": "RCP-001", "equipmentId": "EQ-SEM-01", "equipmentType": "SEM", "name": "Defect Review Standard", "version": "1.2.0", "parameters": "voltage=3kV; dwell=30ms", "active": True},
+            {"id": "RCP-002", "equipmentId": "EQ-XRD-01", "equipmentType": "XRD", "name": "Thin Film Stress Scan", "version": "2.1.0", "parameters": "angle=20-80; step=0.02", "active": True},
+            {"id": "RCP-003", "equipmentId": "EQ-FTIR-01", "equipmentType": "FTIR", "name": "Contamination Quick Scan", "version": "1.4.3", "parameters": "range=400-4000; resolution=4", "active": True},
         ],
         "jobs": [
             {
                 "id": "JOB-2026-001",
                 "requestId": "REQ-2026-003",
                 "wipId": "WIP-003-A",
-                "equipmentId": "EQ-FTIR-03",
+                "equipmentId": "EQ-FTIR-01",
                 "recipeId": "RCP-003",
                 "operator": "Lab Operator",
                 "status": "running",
@@ -101,7 +101,7 @@ def create_initial_state() -> dict[str, Any]:
         "alarms": [
             {
                 "id": "ALM-001",
-                "equipmentId": "EQ-PROBE-04",
+                "equipmentId": "EQ-PROBE-01",
                 "severity": "High",
                 "message": "Probe card contact resistance over threshold",
                 "status": "alarm",
@@ -109,9 +109,8 @@ def create_initial_state() -> dict[str, Any]:
             }
         ],
         "audit": [
-            {"message": "REQ-2026-003 dispatched to FTIR-03", "actor": "Lab Operator", "occurredAt": "2026-05-02 18:20"},
+            {"message": "REQ-2026-003 dispatched to FTIR-01", "actor": "Lab Operator", "occurredAt": "2026-05-02 18:20"},
             {"message": "REQ-2026-002 received by lab", "actor": "Lab Operator", "occurredAt": "2026-05-02 17:50"},
             {"message": "REQ-2026-001 submitted for approval", "actor": "Evan Lin", "occurredAt": "2026-05-02 17:30"},
         ],
     }
-

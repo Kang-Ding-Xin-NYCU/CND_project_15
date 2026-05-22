@@ -6,6 +6,8 @@ from typing import Any, Callable
 
 from .cache import NoopCache
 from .config import MONGO_DB_NAME
+from .auth import public_user
+from .domain import refresh_equipment_utilization
 from .seed import create_initial_state
 
 CACHE_KEYS = ("state", "dashboard")
@@ -21,6 +23,14 @@ LEGACY_STATE_COLLECTION = "app_state"
 def _invalidate_cache(cache: Any) -> None:
     if getattr(cache, "enabled", False):
         cache.delete(*CACHE_KEYS)
+
+
+def public_state(state: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(state)
+    payload["users"] = [public_user(user) for user in state.get("users", [])]
+    payload["equipment"] = [dict(machine) for machine in state.get("equipment", [])]
+    refresh_equipment_utilization(payload)
+    return payload
 
 
 class JsonStore:
@@ -53,7 +63,7 @@ class JsonStore:
             state = self.read()
             result = mutator(state) or {}
             self.write(state)
-            return {"state": state, **result}
+            return {"state": public_state(state), **result}
 
     def reset(self) -> dict[str, Any]:
         state = create_initial_state()
@@ -180,7 +190,7 @@ class MongoStore:
             state = self.read()
             result = mutator(state) or {}
             self.write(state)
-            return {"state": state, **result}
+            return {"state": public_state(state), **result}
 
     def reset(self) -> dict[str, Any]:
         state = create_initial_state()

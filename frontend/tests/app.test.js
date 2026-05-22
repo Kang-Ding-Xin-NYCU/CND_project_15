@@ -22,7 +22,7 @@ const test = require("node:test");
 const {
   escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
   roleAllows, sectionAllowed, normalizeSplitRows, machineEventPayloadFromFields, dispatchableItemsForRequest,
-  renderDashboardStatusChart, renderDashboardUtilization, renderReports
+  renderDashboardStatusChart, renderDashboardUtilization, renderReports, renderUsers
 } = require("../app");
 
 // ==================== escapeHtml ====================
@@ -97,8 +97,8 @@ test("auditTime should return a date string for plain string entry", () => {
 // ==================== equipmentName ====================
 test("equipmentName should return machine name for known equipment ID", () => {
   assert.equal(equipmentName("EQ-SEM-01"), "SEM-01");
-  assert.equal(equipmentName("EQ-XRD-02"), "XRD-02");
-  assert.equal(equipmentName("EQ-FTIR-03"), "FTIR-03");
+  assert.equal(equipmentName("EQ-XRD-01"), "XRD-01");
+  assert.equal(equipmentName("EQ-FTIR-01"), "FTIR-01");
 });
 
 test("equipmentName should fallback to raw ID for unknown equipment", () => {
@@ -137,10 +137,14 @@ test("sectionAllowed should follow current JWT role state", () => {
   state.currentRole = "fab";
   assert.equal(sectionAllowed("requests"), true);
   assert.equal(sectionAllowed("lab"), false);
+  assert.equal(sectionAllowed("users"), false);
 
   state.currentRole = "operator";
   assert.equal(sectionAllowed("lab"), true);
   assert.equal(sectionAllowed("approval"), false);
+
+  state.currentRole = "admin";
+  assert.equal(sectionAllowed("users"), true);
   state.currentRole = previousRole;
 });
 
@@ -207,7 +211,7 @@ test("machineEventPayloadFromFields should build completed event payload", () =>
 
 test("machineEventPayloadFromFields should omit jobId for alarm events", () => {
   const payload = machineEventPayloadFromFields({
-    equipmentId: "EQ-PROBE-04",
+    equipmentId: "EQ-PROBE-01",
     eventType: "alarm",
     severity: "High",
     message: "Probe warning",
@@ -281,6 +285,31 @@ test("renderReports should display formatted result and alarm data", () => {
   assert.ok(alarmHtml.includes("severity-High"), "Should display severity class");
 });
 
+test("renderUsers should show sanitized role controls for admin", () => {
+  const previousUsers = state.users;
+  const previousRole = state.currentRole;
+  state.currentRole = "admin";
+  state.users = [{
+    id: "USR-X",
+    username: "<admin>",
+    name: "Admin <script>",
+    role: "operator",
+    department: "IT",
+    site: "Fab 12",
+    passwordHash: "secret"
+  }];
+
+  renderUsers();
+  const html = global.domNodes["#userRows"].innerHTML;
+  assert.ok(html.includes("&lt;admin&gt;"), "username should be escaped");
+  assert.ok(!html.includes("<script>"), "name should not contain raw script tag");
+  assert.ok(!html.includes("passwordHash"), "password fields should not be rendered");
+  assert.ok(html.includes("實驗室人員"), "role label should be rendered");
+
+  state.users = previousUsers;
+  state.currentRole = previousRole;
+});
+
 // ==================== Extended Edge Case Tests ====================
 test("Defensive State Null-Safety: render functions should survive null states", () => {
   const originalState = { ...state };
@@ -305,21 +334,21 @@ test("Defensive State Null-Safety: render functions should survive null states",
   Object.assign(state, originalState);
 });
 
-test("Utilization Boundary Defense: Should restrict out-of-bound and NaN utilization", () => {
+test("Utilization should be calculated by running machines per equipment type", () => {
   state.equipment = [
-    { id: "EQ-1", name: "Eq 1", status: "idle", utilization: -20 },
-    { id: "EQ-2", name: "Eq 2", status: "idle", utilization: 150 },
-    { id: "EQ-3", name: "Eq 3", status: "idle", utilization: "invalid" }
+    { id: "EQ-SEM-01", type: "SEM", name: "SEM-01", status: "running" },
+    { id: "EQ-SEM-02", type: "SEM", name: "SEM-02", status: "idle" },
+    { id: "EQ-XRD-01", type: "XRD", name: "XRD-01", status: "idle" },
+    { id: "EQ-XRD-02", type: "XRD", name: "XRD-02", status: "maintenance" }
   ];
 
   renderDashboardUtilization();
   const html = global.domNodes["#dashboardUtilization"].innerHTML;
 
-  assert.ok(html.includes("width: 0%"), "Negative utilization should be clamped to 0%");
-  assert.ok(html.includes("width: 100%"), "Over-100 utilization should be clamped to 100%");
-
-  const zeroCount = (html.match(/width: 0%/g) || []).length;
-  assert.equal(zeroCount, 2, "Both negative and invalid utilizations should be clamped to 0%");
+  assert.ok(html.includes("SEM｜運作中 1/2"), "SEM should show running count over total");
+  assert.ok(html.includes("width: 50%"), "SEM utilization should be 50%");
+  assert.ok(html.includes("XRD｜運作中 0/2"), "XRD should show zero running machines");
+  assert.ok(html.includes("width: 0%"), "XRD utilization should be 0%");
 });
 
 test("HTML Attribute XSS Defense: data-* attributes should be escaped", () => {

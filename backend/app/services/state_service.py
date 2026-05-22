@@ -2,6 +2,7 @@ from typing import Any
 
 from ..dashboard import create_dashboard
 from ..http_utils import cache_hit
+from ..store import public_state
 
 
 def read_state(store: Any) -> dict[str, Any]:
@@ -9,7 +10,7 @@ def read_state(store: Any) -> dict[str, Any]:
         cached = store.cache.get_json("state")
         if cache_hit(cached):
             return cached
-    state = store.read()
+    state = public_state(store.read())
     if getattr(store.cache, "enabled", False):
         store.cache.set_json("state", state, 20)
     return state
@@ -27,7 +28,7 @@ def read_dashboard(store: Any) -> dict[str, Any]:
 
 
 def reset(store: Any) -> dict[str, Any]:
-    return {"state": store.reset(), "message": "Demo data reset"}
+    return {"state": public_state(store.reset()), "message": "Demo data reset"}
 
 
 def health(store: Any) -> dict[str, Any]:

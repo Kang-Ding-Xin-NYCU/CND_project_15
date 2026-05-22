@@ -205,12 +205,14 @@ k8s/                 local Kubernetes manifests for frontend / backend / mongo /
 
 ## 5. 角色與權限
 
+系統採一人一帳號密碼模型，使用者登入後 JWT 會記錄帳號識別，後端每次 API request 會重新從 store 讀取目前角色，因此 admin 調整身分後會即時套用。新帳號由 admin 建立，預設密碼為 `password123`，使用者登入後可自行更換密碼。
+
 | 角色 | 帳號 | 權限 |
 | --- | --- | --- |
 | 廠區使用者 | `fab` | 建立委託單、查詢 |
-| 實驗室主管 | `supervisor` | 核准 / 退回委託單 |
+| 實驗室主管 | `supervisor` | 核准 / 退回委託單、設定機台種類 N 與每種台數 K |
 | 實驗室人員 | `operator` | 收件、分貨、派貨、上下貨、機台狀態、告警確認 |
-| 系統管理員 | `admin` | 管理 Recipe、重置 demo data；admin 可通過所有 RBAC 檢查 |
+| 系統管理員 | `admin` | 管理 Recipe、指派使用者角色、重置 demo data；admin 可通過所有 RBAC 檢查 |
 
 除 `GET /api/health` 與 `POST /api/auth/login` 外，所有 `/api/*` 都需要 `Authorization: Bearer <JWT>`。
 
@@ -234,6 +236,10 @@ stateDiagram-v2
 - 只有 `approved` 可 receive。
 - 只有 `received` 可 split。
 - 只有 `received` 或 `split` 可 dispatch。
+- 派貨只能選 `idle` 機台；派貨後機台狀態立刻變 `running`。
+- `alarm` / `maintenance` 機台不可派貨；處理後可由 operator 設回 `idle`。
+- `running` 機台不可手動設為 `idle`，必須透過下貨或 machine completed event 完成。
+- 機台使用率以「同 type 中 `running` 台數 / 該 type 全部台數」計算。
 - job 只有 `queued` 可 load，只有 `running` / `loaded` 可 unload。
 
 ## 7. 主要 API
@@ -244,9 +250,13 @@ stateDiagram-v2
 | `POST` | `/api/auth/login` | public | 登入取得 JWT |
 | `GET` | `/api/auth/me` | authenticated | 查目前登入者 |
 | `POST` | `/api/auth/logout` | authenticated | 登出並撤銷 Redis session |
+| `PATCH` | `/api/auth/password` | authenticated | 登入者更換自己的密碼 |
 | `GET` | `/api/state` | authenticated | 取得完整 demo state |
 | `GET` | `/api/dashboard` | authenticated | Dashboard aggregation |
 | `GET` | `/api/audit?limit=20` | authenticated | 查操作歷程 |
+| `POST` | `/api/users` | `admin` | 建立使用者帳號，預設密碼 `password123` |
+| `GET` | `/api/users` | `admin` | 查使用者與目前角色 |
+| `PATCH` | `/api/users/{id}/role` | `admin` | 指派使用者角色 |
 | `POST` | `/api/requests` | `fab` | 建立委託單 |
 | `POST` | `/api/requests/{id}/approve` | `supervisor` | 核准 |
 | `POST` | `/api/requests/{id}/reject` | `supervisor` | 退回 |
@@ -257,6 +267,7 @@ stateDiagram-v2
 | `POST` | `/api/dispatch-jobs/{id}/load` | `operator` | 上貨 |
 | `POST` | `/api/dispatch-jobs/{id}/unload` | `operator` | 下貨、產生 result、自動結案 |
 | `POST` | `/api/equipment/{id}/status` | `operator` | 更新機台狀態 |
+| `PUT` | `/api/equipment/types` | `supervisor` | 設定機台種類與每種台數 |
 | `POST` | `/api/recipes` | `admin` | 新增 Recipe |
 | `GET` | `/api/results` | authenticated | 查結果 |
 | `GET` | `/api/results/{id}` | authenticated | 查單筆結果 |
@@ -303,7 +314,7 @@ Backend tests：
 
 - `backend/tests/test_api.py`
 - `backend/tests/test_store.py`
-- 涵蓋 auth、JWT expiry、RBAC、完整 LIMS 流程、狀態轉換、派貨限制、告警、Recipe 管理、Mongo migration。
+- 涵蓋 auth、JWT expiry、RBAC、使用者建立 / 角色管理 / 自助改密碼、完整 LIMS 流程、狀態轉換、派貨限制、告警、Recipe 管理、Mongo migration。
 
 Frontend tests：
 
@@ -314,10 +325,6 @@ Frontend tests：
 
 | 類別 | 限制 |
 | --- | --- |
-| Frontend 權限 | UI 仍有角色切換選單，可能與 JWT 角色不一致 |
-| Frontend 安全 | 多處使用 `innerHTML` render 使用者輸入，需補 XSS escape |
-| WIP 分貨 | 目前為自動 A/B 分貨，尚未支援手動 WIP 數量與用途 |
-| Recipe | 目前只支援新增，尚未支援版本停用與 active recipe 規則 |
-| 機台自動化 | 尚未有 machine event collector API |
+| 使用者管理 | 已支援 admin 新增帳號、指派角色與使用者自助改密碼；尚未支援停用使用者或 admin 代重設密碼 |
 | Observability | 目前只有 health check，尚無 metrics/log format/tracing |
 | Docker/K8s | 有 Docker Compose 與本機 Kubernetes manifests；尚未有 production ingress、HA Redis/Mongo、metrics/tracing |

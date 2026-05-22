@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .auth import authenticate_header
+from .auth import authenticate_header, public_user
 from .cache import create_redis_cache
 from .config import (
     DEFAULT_DATA_FILE,
@@ -49,7 +49,7 @@ def create_app(store: Any | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )
 
@@ -77,10 +77,28 @@ def create_app(store: Any | None = None) -> FastAPI:
         )
         if path.startswith("/api/") and request.method != "OPTIONS" and not public_route:
             try:
-                request.state.user = authenticate_header(
+                token_user = authenticate_header(
                     request.headers.get("authorization"),
                     request.app.state.store.cache,
                 )
+                state = request.app.state.store.read()
+                current_user = next(
+                    (
+                        user
+                        for user in state["users"]
+                        if user["id"] == token_user.get("sub") or user["username"] == token_user.get("username")
+                    ),
+                    None,
+                )
+                if not current_user:
+                    raise ApiError("User no longer exists", 401)
+                request.state.user = {
+                    **public_user(current_user),
+                    "sub": current_user["id"],
+                    "jti": token_user.get("jti"),
+                    "iat": token_user.get("iat"),
+                    "exp": token_user.get("exp"),
+                }
             except ApiError as exc:
                 return json_error(exc.message, exc.status_code)
         return await call_next(request)

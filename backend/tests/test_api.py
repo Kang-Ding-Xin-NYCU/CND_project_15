@@ -185,7 +185,7 @@ async def test_rbac_rejects_supervisor_dispatch(tmp_path):
             json={
                 "requestId": "REQ-2026-002",
                 "wipId": "WIP-002-A",
-                "equipmentId": "EQ-XRD-02",
+                "equipmentId": "EQ-XRD-01",
                 "recipeId": "RCP-002",
             },
         )
@@ -273,12 +273,139 @@ async def test_dispatch_rejects_invalid_request_and_recipe_pairing(tmp_path):
             json={
                 "requestId": "REQ-2026-002",
                 "wipId": "WIP-002-A",
-                "equipmentId": "EQ-PROBE-04",
+                "equipmentId": "EQ-PROBE-01",
                 "recipeId": "RCP-001",
             },
         )
         assert alarm_machine.status_code == 409
         assert alarm_machine.json()["error"] == "Equipment is not dispatchable"
+
+
+@pytest.mark.anyio
+async def test_supervisor_configures_equipment_types_and_dispatch_uses_idle_machine_only(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+        supervisor_token = await login(client, "supervisor")
+
+        denied = await client.put(
+            "/api/equipment/types",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"types": [{"type": "XRD", "count": 2}]},
+        )
+        assert denied.status_code == 403
+
+        configured = await json_request(
+            client,
+            "PUT",
+            "/api/equipment/types",
+            token=supervisor_token,
+            json={
+                "types": [
+                    {"type": "SEM", "count": 1, "area": "Lab A", "capability": "Defect review"},
+                    {"type": "XRD", "count": 2, "area": "Lab B", "capability": "Thin film stress"},
+                    {"type": "FTIR", "count": 1, "area": "Lab C", "capability": "Contamination scan"},
+                    {"type": "PROBE", "count": 1, "area": "Lab D", "capability": "Electrical probe"},
+                ]
+            },
+        )
+        xrd_summary = next(item for item in configured["equipmentTypes"] if item["type"] == "XRD")
+        assert xrd_summary["count"] == 2
+        assert any(machine["id"] == "EQ-XRD-02" for machine in configured["state"]["equipment"])
+
+        first = await json_request(
+            client,
+            "POST",
+            "/api/dispatch-jobs",
+            token=operator_token,
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-XRD-01",
+                "recipeId": "RCP-002",
+            },
+        )
+        xrd_machines = [machine for machine in first["state"]["equipment"] if machine["type"] == "XRD"]
+        assert {machine["status"] for machine in xrd_machines} == {"running", "idle"}
+        assert {machine["utilization"] for machine in xrd_machines} == {50}
+
+        second_request_id, operator_token = await _prepare_received_request(
+            client,
+            sample_code="SMP-XRD-200",
+            quantity=2,
+        )
+        split_second = await json_request(
+            client,
+            "POST",
+            f"/api/requests/{second_request_id}/split",
+            token=operator_token,
+            json={"wips": [{"quantity": 1, "purpose": "XRD first"}, {"quantity": 1, "purpose": "XRD second"}]},
+        )
+        second_request = next(item for item in split_second["state"]["requests"] if item["id"] == second_request_id)
+
+        running_machine = await client.post(
+            "/api/dispatch-jobs",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={
+                "requestId": second_request_id,
+                "wipId": second_request["wips"][0]["id"],
+                "equipmentId": "EQ-XRD-01",
+                "recipeId": "RCP-002",
+            },
+        )
+        assert running_machine.status_code == 409
+        assert running_machine.json()["error"] == "Equipment is not dispatchable"
+
+        second = await json_request(
+            client,
+            "POST",
+            "/api/dispatch-jobs",
+            token=operator_token,
+            json={
+                "requestId": second_request_id,
+                "wipId": second_request["wips"][0]["id"],
+                "equipmentId": "EQ-XRD-02",
+                "recipeId": "RCP-002",
+            },
+        )
+        xrd_machines = [machine for machine in second["state"]["equipment"] if machine["type"] == "XRD"]
+        assert all(machine["status"] == "running" for machine in xrd_machines)
+        assert {machine["utilization"] for machine in xrd_machines} == {100}
+
+
+@pytest.mark.anyio
+async def test_equipment_status_transitions_block_running_to_idle_but_allow_alarm_recovery(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+
+        running_to_idle = await client.post(
+            "/api/equipment/EQ-FTIR-01/status",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"status": "idle"},
+        )
+        assert running_to_idle.status_code == 409
+        assert running_to_idle.json()["error"] == "Running equipment cannot be set to idle manually"
+
+        recovered = await json_request(
+            client,
+            "POST",
+            "/api/equipment/EQ-PROBE-01/status",
+            token=operator_token,
+            json={"status": "idle"},
+        )
+        probe = next(machine for machine in recovered["state"]["equipment"] if machine["id"] == "EQ-PROBE-01")
+        assert probe["status"] == "idle"
+
+        maintenance = await json_request(
+            client,
+            "POST",
+            "/api/equipment/EQ-PROBE-01/status",
+            token=operator_token,
+            json={"status": "maintenance"},
+        )
+        probe = next(machine for machine in maintenance["state"]["equipment"] if machine["id"] == "EQ-PROBE-01")
+        assert probe["status"] == "maintenance"
 
 
 @pytest.mark.anyio
@@ -322,6 +449,178 @@ async def test_admin_can_manage_recipes_but_operator_cannot(tmp_path):
         created = await client.post("/api/recipes", headers={"Authorization": f"Bearer {admin_token}"}, json=body)
         assert created.status_code == 201
         assert created.json()["state"]["recipes"][0]["name"] == "RBAC Recipe"
+
+
+@pytest.mark.anyio
+async def test_admin_can_list_users_and_update_roles(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        fab_token = await login(client, "fab")
+        operator_token = await login(client, "operator")
+        admin_token = await login(client, "admin")
+
+        denied = await client.get("/api/users", headers={"Authorization": f"Bearer {operator_token}"})
+        assert denied.status_code == 403
+
+        listed = await json_request(client, "GET", "/api/users", token=admin_token)
+        fab_user = next(user for user in listed["users"] if user["username"] == "fab")
+        assert fab_user["role"] == "fab"
+        assert "passwordHash" not in fab_user
+        assert "passwordSalt" not in fab_user
+
+        state_snapshot = await json_request(client, "GET", "/api/state", token=admin_token)
+        assert "passwordHash" not in state_snapshot["users"][0]
+        assert "passwordSalt" not in state_snapshot["users"][0]
+
+        updated = await json_request(
+            client,
+            "PATCH",
+            f"/api/users/{fab_user['id']}/role",
+            token=admin_token,
+            json={"role": "operator", "actor": "System Admin"},
+        )
+        changed_user = next(user for user in updated["users"] if user["id"] == fab_user["id"])
+        assert changed_user["role"] == "operator"
+        assert "state" not in updated
+
+        profile = await json_request(client, "GET", "/api/auth/me", token=fab_token)
+        assert profile["user"]["role"] == "operator"
+
+        dispatched = await json_request(
+            client,
+            "POST",
+            "/api/dispatch-jobs",
+            token=fab_token,
+            json={
+                "requestId": "REQ-2026-002",
+                "wipId": "WIP-002-A",
+                "equipmentId": "EQ-XRD-01",
+                "recipeId": "RCP-002",
+            },
+        )
+        assert dispatched["state"]["jobs"][0]["requestId"] == "REQ-2026-002"
+
+        audit_rows = await json_request(client, "GET", "/api/audit", token=admin_token)
+        role_update = next(row for row in audit_rows if row.get("action") == "user.role.update")
+        assert role_update["targetId"] == fab_user["id"]
+
+
+@pytest.mark.anyio
+async def test_admin_can_create_user_with_default_password_and_assign_role(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        operator_token = await login(client, "operator")
+        admin_token = await login(client, "admin")
+        body = {
+            "username": "dora",
+            "name": "Dora User",
+            "role": "fab",
+            "department": "Fab Demo",
+            "site": "Fab 12",
+        }
+
+        denied = await client.post("/api/users", headers={"Authorization": f"Bearer {operator_token}"}, json=body)
+        assert denied.status_code == 403
+
+        created = await json_request(client, "POST", "/api/users", token=admin_token, json=body)
+        assert created["defaultPassword"] == "password123"
+        assert created["user"]["username"] == "dora"
+        assert created["user"]["role"] == "fab"
+        assert "passwordHash" not in created["user"]
+        user_id = created["user"]["id"]
+
+        duplicate = await client.post("/api/users", headers={"Authorization": f"Bearer {admin_token}"}, json=body)
+        assert duplicate.status_code == 409
+        assert duplicate.json()["error"] == "Username already exists"
+
+        new_token = await json_request(
+            client,
+            "POST",
+            "/api/auth/login",
+            json={"username": "dora", "password": "password123"},
+        )
+        assert new_token["user"]["role"] == "fab"
+
+        updated = await json_request(
+            client,
+            "PATCH",
+            f"/api/users/{user_id}/role",
+            token=admin_token,
+            json={"role": "operator"},
+        )
+        assert next(user for user in updated["users"] if user["id"] == user_id)["role"] == "operator"
+
+
+@pytest.mark.anyio
+async def test_user_can_change_own_password(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        fab_token = await login(client, "fab")
+
+        wrong_current = await client.patch(
+            "/api/auth/password",
+            headers={"Authorization": f"Bearer {fab_token}"},
+            json={"currentPassword": "wrong-password", "newPassword": "new-password-123"},
+        )
+        assert wrong_current.status_code == 401
+        assert wrong_current.json()["error"] == "Current password is incorrect"
+
+        too_short = await client.patch(
+            "/api/auth/password",
+            headers={"Authorization": f"Bearer {fab_token}"},
+            json={"currentPassword": "password123", "newPassword": "short"},
+        )
+        assert too_short.status_code == 400
+        assert "at least 8 characters" in too_short.json()["error"]
+
+        changed = await json_request(
+            client,
+            "PATCH",
+            "/api/auth/password",
+            token=fab_token,
+            json={"currentPassword": "password123", "newPassword": "new-password-123"},
+        )
+        assert changed["message"] == "Password updated"
+
+        old_password = await client.post(
+            "/api/auth/login",
+            json={"username": "fab", "password": "password123"},
+        )
+        assert old_password.status_code == 401
+
+        new_password = await json_request(
+            client,
+            "POST",
+            "/api/auth/login",
+            json={"username": "fab", "password": "new-password-123"},
+        )
+        assert new_password["user"]["username"] == "fab"
+
+        audit_rows = await json_request(client, "GET", "/api/audit", token=fab_token)
+        assert any(row.get("action") == "user.password.change" for row in audit_rows)
+
+
+@pytest.mark.anyio
+async def test_user_role_management_rejects_invalid_role_and_last_admin_demotion(tmp_path):
+    transport = httpx.ASGITransport(app=make_app(tmp_path))
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        admin_token = await login(client, "admin")
+
+        invalid = await client.patch(
+            "/api/users/USR-001/role",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"role": "owner"},
+        )
+        assert invalid.status_code == 400
+        assert "Invalid role" in invalid.json()["error"]
+
+        last_admin = await client.patch(
+            "/api/users/USR-004/role",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"role": "operator"},
+        )
+        assert last_admin.status_code == 409
+        assert last_admin.json()["error"] == "Cannot remove the last admin"
 
 
 async def _prepare_received_request(client, *, sample_code="SMP-T-100", quantity=6):
@@ -442,7 +741,7 @@ async def test_dispatch_rejects_re_dispatching_same_wip(tmp_path):
             json={
                 "requestId": "REQ-2026-002",
                 "wipId": "WIP-002-A",
-                "equipmentId": "EQ-XRD-02",
+                "equipmentId": "EQ-XRD-01",
                 "recipeId": "RCP-002",
             },
         )
@@ -462,7 +761,7 @@ async def test_dispatch_rejects_re_dispatching_same_wip(tmp_path):
             json={
                 "requestId": "REQ-2026-002",
                 "wipId": "WIP-002-A",
-                "equipmentId": "EQ-XRD-02",
+                "equipmentId": "EQ-XRD-01",
                 "recipeId": "RCP-002",
             },
         )
@@ -553,10 +852,10 @@ async def test_machine_completed_event_finishes_job_and_creates_result_metadata(
             "/api/machine-events",
             token=operator_token,
             json={
-                "equipmentId": "EQ-FTIR-03",
+                "equipmentId": "EQ-FTIR-01",
                 "eventType": "completed",
                 "jobId": "JOB-2026-001",
-                "actor": "FTIR-03",
+                "actor": "FTIR-01",
                 "payload": {
                     "rawUri": "s3://machine/ftir/JOB-2026-001.csv",
                     "reportUri": "s3://machine/ftir/JOB-2026-001.pdf",
@@ -567,7 +866,7 @@ async def test_machine_completed_event_finishes_job_and_creates_result_metadata(
 
         job = next(item for item in payload["state"]["jobs"] if item["id"] == "JOB-2026-001")
         request_item = next(item for item in payload["state"]["requests"] if item["id"] == "REQ-2026-003")
-        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-03")
+        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-01")
         result = payload["state"]["results"][0]
 
         assert payload["message"] == "event processed"
@@ -586,13 +885,13 @@ async def test_machine_completed_event_finishes_job_and_creates_result_metadata(
         dashboard = await json_request(client, "GET", "/api/dashboard", token=operator_token)
         assert dashboard["resultCount"] == 1
         assert dashboard["latestResults"][0]["id"] == result["id"]
-        assert dashboard["resultByEquipment"] == {"EQ-FTIR-03": 1}
+        assert dashboard["resultByEquipment"] == {"EQ-FTIR-01": 1}
         assert dashboard["equipmentStatusCount"]["idle"] == 3
         assert dashboard["alarmBySeverity"]["High"] == 1
 
         result_by_request = await json_request(client, "GET", "/api/results?requestId=REQ-2026-003", token=operator_token)
         result_by_job = await json_request(client, "GET", "/api/results?jobId=JOB-2026-001", token=operator_token)
-        result_by_equipment = await json_request(client, "GET", "/api/results?equipmentId=EQ-FTIR-03", token=operator_token)
+        result_by_equipment = await json_request(client, "GET", "/api/results?equipmentId=EQ-FTIR-01", token=operator_token)
         result_by_recipe = await json_request(client, "GET", "/api/results?recipeId=RCP-003", token=operator_token)
         result_mismatch = await json_request(client, "GET", "/api/results?equipmentId=EQ-SEM-01", token=operator_token)
         single_result = await json_request(client, "GET", f"/api/results/{result['id']}", token=operator_token)
@@ -602,7 +901,7 @@ async def test_machine_completed_event_finishes_job_and_creates_result_metadata(
         assert [item["id"] for item in result_by_equipment] == [result["id"]]
         assert [item["id"] for item in result_by_recipe] == [result["id"]]
         assert result_mismatch == []
-        assert single_result["metadata"]["equipmentId"] == "EQ-FTIR-03"
+        assert single_result["metadata"]["equipmentId"] == "EQ-FTIR-01"
 
 
 @pytest.mark.anyio
@@ -646,10 +945,10 @@ async def test_machine_measurement_event_appends_history_and_threshold_alarm(tmp
             "/api/machine-events",
             token=operator_token,
             json={
-                "equipmentId": "EQ-FTIR-03",
+                "equipmentId": "EQ-FTIR-01",
                 "eventType": "measurement",
                 "jobId": "JOB-2026-001",
-                "actor": "FTIR-03",
+                "actor": "FTIR-01",
                 "payload": {
                     "metric": "chamberTemp",
                     "value": 96,
@@ -661,14 +960,14 @@ async def test_machine_measurement_event_appends_history_and_threshold_alarm(tmp
         )
 
         job = next(item for item in payload["state"]["jobs"] if item["id"] == "JOB-2026-001")
-        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-03")
+        machine = next(item for item in payload["state"]["equipment"] if item["id"] == "EQ-FTIR-01")
         alarm = payload["state"]["alarms"][0]
         assert payload["message"] == "event processed"
         assert job["status"] == "running"
         assert job["history"][-1]["action"] == "machine.measurement"
         assert job["history"][-1]["payload"]["metric"] == "chamberTemp"
         assert machine["status"] == "alarm"
-        assert alarm["equipmentId"] == "EQ-FTIR-03"
+        assert alarm["equipmentId"] == "EQ-FTIR-01"
         assert alarm["severity"] == "High"
         assert alarm["source"] == "threshold"
 
@@ -699,7 +998,7 @@ async def test_machine_event_rejects_invalid_contracts(tmp_path):
         invalid_type = await client.post(
             "/api/machine-events",
             headers=headers,
-            json={"equipmentId": "EQ-FTIR-03", "eventType": "started", "payload": {}},
+            json={"equipmentId": "EQ-FTIR-01", "eventType": "started", "payload": {}},
         )
         assert invalid_type.status_code == 400
         assert invalid_type.json()["error"] == "eventType must be one of: completed, alarm, measurement"
@@ -707,7 +1006,7 @@ async def test_machine_event_rejects_invalid_contracts(tmp_path):
         invalid_payload = await client.post(
             "/api/machine-events",
             headers=headers,
-            json={"equipmentId": "EQ-FTIR-03", "eventType": "alarm", "payload": ["not", "an", "object"]},
+            json={"equipmentId": "EQ-FTIR-01", "eventType": "alarm", "payload": ["not", "an", "object"]},
         )
         assert invalid_payload.status_code == 400
         assert invalid_payload.json()["error"] == "payload must be an object"
@@ -715,7 +1014,7 @@ async def test_machine_event_rejects_invalid_contracts(tmp_path):
         missing_job = await client.post(
             "/api/machine-events",
             headers=headers,
-            json={"equipmentId": "EQ-FTIR-03", "eventType": "completed", "payload": {}},
+            json={"equipmentId": "EQ-FTIR-01", "eventType": "completed", "payload": {}},
         )
         assert missing_job.status_code == 400
         assert missing_job.json()["error"] == "jobId is required for completed events"
@@ -740,7 +1039,7 @@ async def test_machine_completed_event_is_not_repeatable(tmp_path):
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         operator_token = await login(client, "operator")
         body = {
-            "equipmentId": "EQ-FTIR-03",
+            "equipmentId": "EQ-FTIR-01",
             "eventType": "completed",
             "jobId": "JOB-2026-001",
             "payload": {},

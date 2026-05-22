@@ -14,7 +14,6 @@ const statusText = {
   running: "執行中",
   failed: "失敗",
   idle: "閒置",
-  busy: "使用中",
   maintenance: "保養",
   alarm: "異常"
 };
@@ -32,6 +31,12 @@ const state = {
   jobSeq: 2,
   alarmSeq: 2,
   currentRole: "fab",
+  users: [
+    { id: "USR-001", username: "fab", name: "Ivy Chen", role: "fab", department: "Fab 12 R&D", site: "Fab 12" },
+    { id: "USR-002", username: "supervisor", name: "Sam Wang", role: "supervisor", department: "Central Lab", site: "Fab 12" },
+    { id: "USR-003", username: "operator", name: "Lab Operator", role: "operator", department: "Central Lab", site: "Fab 12" },
+    { id: "USR-004", username: "admin", name: "System Admin", role: "admin", department: "IT", site: "Global" }
+  ],
   requests: [
     {
       id: "REQ-2026-001",
@@ -82,22 +87,22 @@ const state = {
     }
   ],
   equipment: [
-    { id: "EQ-SEM-01", name: "SEM-01", area: "Lab A", capability: "高解析影像", status: "idle", utilization: 62 },
-    { id: "EQ-XRD-02", name: "XRD-02", area: "Lab B", capability: "薄膜晶體分析", status: "idle", utilization: 48 },
-    { id: "EQ-FTIR-03", name: "FTIR-03", area: "Lab C", capability: "材料光譜", status: "busy", utilization: 81 },
-    { id: "EQ-PROBE-04", name: "Probe-04", area: "Lab D", capability: "電性測試", status: "alarm", utilization: 35 }
+    { id: "EQ-SEM-01", type: "SEM", name: "SEM-01", area: "Lab A", capability: "高解析影像", status: "idle", utilization: 0 },
+    { id: "EQ-XRD-01", type: "XRD", name: "XRD-01", area: "Lab B", capability: "薄膜晶體分析", status: "idle", utilization: 0 },
+    { id: "EQ-FTIR-01", type: "FTIR", name: "FTIR-01", area: "Lab C", capability: "材料光譜", status: "running", utilization: 100 },
+    { id: "EQ-PROBE-01", type: "PROBE", name: "Probe-01", area: "Lab D", capability: "電性測試", status: "alarm", utilization: 0 }
   ],
   recipes: [
-    { id: "RCP-001", equipmentId: "EQ-SEM-01", name: "Defect Review Standard", version: "1.2.0", parameters: "voltage=3kV; dwell=30ms" },
-    { id: "RCP-002", equipmentId: "EQ-XRD-02", name: "Thin Film Stress Scan", version: "2.1.0", parameters: "angle=20-80; step=0.02" },
-    { id: "RCP-003", equipmentId: "EQ-FTIR-03", name: "Contamination Quick Scan", version: "1.4.3", parameters: "range=400-4000; resolution=4" }
+    { id: "RCP-001", equipmentId: "EQ-SEM-01", equipmentType: "SEM", name: "Defect Review Standard", version: "1.2.0", parameters: "voltage=3kV; dwell=30ms" },
+    { id: "RCP-002", equipmentId: "EQ-XRD-01", equipmentType: "XRD", name: "Thin Film Stress Scan", version: "2.1.0", parameters: "angle=20-80; step=0.02" },
+    { id: "RCP-003", equipmentId: "EQ-FTIR-01", equipmentType: "FTIR", name: "Contamination Quick Scan", version: "1.4.3", parameters: "range=400-4000; resolution=4" }
   ],
   jobs: [
     {
       id: "JOB-2026-001",
       requestId: "REQ-2026-003",
       wipId: "WIP-003-A",
-      equipmentId: "EQ-FTIR-03",
+      equipmentId: "EQ-FTIR-01",
       recipeId: "RCP-003",
       operator: "Lab Operator",
       status: "running",
@@ -107,10 +112,10 @@ const state = {
   ],
   results: [],
   alarms: [
-    { id: "ALM-001", equipmentId: "EQ-PROBE-04", severity: "High", message: "Probe card contact resistance over threshold", status: "alarm" }
+    { id: "ALM-001", equipmentId: "EQ-PROBE-01", severity: "High", message: "Probe card contact resistance over threshold", status: "alarm" }
   ],
   audit: [
-    "REQ-2026-003 已派貨到 FTIR-03",
+    "REQ-2026-003 已派貨到 FTIR-01",
     "REQ-2026-002 實驗室已收件",
     "REQ-2026-001 送出主管簽核"
   ]
@@ -122,6 +127,8 @@ const pageTitles = {
   approval: "簽核中心",
   lab: "收件與派貨",
   equipment: "機台與 Recipe",
+  users: "使用者管理",
+  account: "帳號設定",
   reports: "結果與統計"
 };
 
@@ -130,13 +137,16 @@ const sectionRoles = {
   requests: ["fab", "admin"],
   approval: ["supervisor", "admin"],
   lab: ["operator", "admin"],
-  equipment: ["operator", "admin"],
+  equipment: ["operator", "supervisor", "admin"],
+  users: ["admin"],
+  account: ["fab", "supervisor", "operator", "admin"],
   reports: ["fab", "supervisor", "operator", "admin"]
 };
 
 const uiState = {
   splitRows: [{ quantity: 1, purpose: "" }],
   splitRequestId: "",
+  equipmentTypeRows: [],
   machineEventEquipmentId: "",
   machineEventType: "completed"
 };
@@ -215,6 +225,45 @@ function requestById(id) {
 
 function jobById(id) {
   return state.jobs.find((job) => job.id === id);
+}
+
+function machineType(machine) {
+  if (!machine) return "";
+  if (machine.type) return String(machine.type);
+  const parts = String(machine.id || "").split("-");
+  if (parts.length >= 3 && parts[0] === "EQ") return parts[1];
+  return String(machine.name || machine.id || "UNKNOWN").split("-")[0];
+}
+
+function equipmentTypeSummary() {
+  const groups = new Map();
+  (state.equipment || []).forEach((machine) => {
+    const type = machineType(machine);
+    if (!groups.has(type)) {
+      groups.set(type, {
+        type,
+        count: 0,
+        running: 0,
+        area: machine.area || "",
+        capability: machine.capability || ""
+      });
+    }
+    const row = groups.get(type);
+    row.count += 1;
+    if (machine.status === "running") row.running += 1;
+  });
+  return Array.from(groups.values()).map((row) => ({
+    ...row,
+    utilization: row.count ? Math.round((row.running / row.count) * 100) : 0
+  }));
+}
+
+function refreshLocalEquipmentUtilization() {
+  const summary = equipmentTypeSummary();
+  (state.equipment || []).forEach((machine) => {
+    const row = summary.find((item) => item.type === machineType(machine));
+    machine.utilization = row?.utilization || 0;
+  });
 }
 
 function showToast(message) {
@@ -473,16 +522,15 @@ function renderDashboardStatusChart() {
 }
 
 function renderDashboardUtilization() {
-  const equipment = state.equipment || [];
-  $("#dashboardUtilization").innerHTML = equipment.length
-    ? equipment
-        .map((machine) => {
-          const rawUtil = Number(machine.utilization);
-          const cleanUtil = isNaN(rawUtil) ? 0 : Math.max(0, Math.min(100, Math.round(rawUtil)));
+  const summaries = equipmentTypeSummary();
+  $("#dashboardUtilization").innerHTML = summaries.length
+    ? summaries
+        .map((row) => {
+          const cleanUtil = Math.max(0, Math.min(100, Math.round(Number(row.utilization) || 0)));
           return `
           <div class="chart-item">
             <div class="chart-label">
-              <span>${escapeHtml(machine.name)} ${statusPill(machine.status)}</span>
+              <span>${escapeHtml(row.type)}｜運作中 ${row.running}/${row.count}</span>
               <span>${cleanUtil}%</span>
             </div>
             <div class="chart-track"><div class="chart-bar" style="width: ${cleanUtil}%"></div></div>
@@ -538,14 +586,14 @@ function renderRequestTables() {
 }
 
 function renderMachineSummary() {
-  const equipment = state.equipment || [];
-  $("#machineSummary").innerHTML = equipment.length
-    ? equipment
+  const summaries = equipmentTypeSummary();
+  $("#machineSummary").innerHTML = summaries.length
+    ? summaries
         .map((machine) => `
           <article class="machine-card">
             <div class="stack-card-header">
-              <h3>${escapeHtml(machine.name)}</h3>
-              ${statusPill(machine.status)}
+              <h3>${escapeHtml(machine.type)}</h3>
+              <span class="status-pill status-running">${machine.running}/${machine.count}</span>
             </div>
             <p>${escapeHtml(machine.area)}｜${escapeHtml(machine.capability)}</p>
             <div class="machine-meta">
@@ -753,7 +801,7 @@ function renderDispatchOptions() {
   $("#dispatchWip").innerHTML = wipOptions.join("") || `<option value="">請先收件</option>`;
 
   $("#dispatchEquipment").innerHTML = equipment
-    .filter((machine) => !["maintenance", "alarm"].includes(machine.status))
+    .filter((machine) => machine.status === "idle")
     .map((machine) => `<option value="${escapeHtml(machine.id)}">${escapeHtml(machine.name)}｜${statusText[machine.status]}</option>`)
     .join("") || `<option value="">沒有可派貨機台</option>`;
   renderRecipeOptions();
@@ -761,7 +809,12 @@ function renderDispatchOptions() {
 
 function renderRecipeOptions() {
   const equipmentId = $("#dispatchEquipment").value;
-  const recipes = state.recipes.filter((recipe) => recipe.equipmentId === equipmentId && recipe.active !== false);
+  const machine = (state.equipment || []).find((item) => item.id === equipmentId);
+  const selectedType = machineType(machine);
+  const recipes = state.recipes.filter((recipe) => (
+    recipe.active !== false
+    && (recipe.equipmentId === equipmentId || recipe.equipmentType === selectedType)
+  ));
   $("#dispatchRecipe").innerHTML = recipes.length
     ? recipes.map((recipe) => `<option value="${escapeHtml(recipe.id)}">${escapeHtml(recipe.name)} v${escapeHtml(recipe.version)}</option>`).join("")
     : `<option value="">此機台尚無 Recipe</option>`;
@@ -805,10 +858,47 @@ function renderJobs() {
     : `<div class="empty-state">尚未建立派貨任務</div>`;
 }
 
+function readEquipmentTypeRows() {
+  return $$("#equipmentTypeRows .split-row").map((row) => ({
+    type: row.querySelector('[name="type"]')?.value.trim().toUpperCase() || "",
+    count: Number(row.querySelector('[name="count"]')?.value || 0),
+    area: row.querySelector('[name="area"]')?.value.trim() || "",
+    capability: row.querySelector('[name="capability"]')?.value.trim() || ""
+  }));
+}
+
+function renderEquipmentTypeForm() {
+  const rows = uiState.equipmentTypeRows.length ? uiState.equipmentTypeRows : equipmentTypeSummary();
+  $("#equipmentTypeRows").innerHTML = rows.length
+    ? rows.map((row, index) => `
+      <div class="split-row" data-equipment-type-index="${index}">
+        <label>
+          種類
+          <input name="type" type="text" value="${escapeHtml(row.type)}" required>
+        </label>
+        <label>
+          台數
+          <input name="count" type="number" min="1" max="50" value="${escapeHtml(String(row.count || 1))}" required>
+        </label>
+        <label>
+          區域
+          <input name="area" type="text" value="${escapeHtml(row.area || "")}">
+        </label>
+        <label>
+          能力
+          <input name="capability" type="text" value="${escapeHtml(row.capability || row.type || "")}">
+        </label>
+        <button class="ghost-button compact-button" type="button" data-action="remove-equipment-type-row" data-equipment-type-index="${index}">移除</button>
+      </div>
+    `).join("")
+    : `<div class="empty-state compact-empty">尚無機台種類</div>`;
+}
+
 function renderEquipment() {
   const equipment = state.equipment || [];
   const recipes = state.recipes || [];
   const canOperate = roleAllows(["operator"]);
+  renderEquipmentTypeForm();
   $("#equipmentList").innerHTML = equipment.length
     ? equipment
         .map((machine) => `
@@ -821,7 +911,7 @@ function renderEquipment() {
               ${statusPill(machine.status)}
             </div>
             ${canOperate ? `<div class="button-row">
-              <button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>
+              ${["alarm", "maintenance"].includes(machine.status) ? `<button class="ghost-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="idle">設為閒置</button>` : ""}
               <button class="warning-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="maintenance">保養</button>
               <button class="danger-button" type="button" data-action="machine-status" data-equipment-id="${escapeHtml(machine.id)}" data-status="alarm">異常</button>
             </div>` : ""}
@@ -882,6 +972,57 @@ function renderMachineEventOptions() {
   jobSelect.disabled = eventType === "alarm";
 }
 
+function roleOptions(selectedRole) {
+  return Object.entries(roleText)
+    .map(([value, label]) => `
+      <option value="${escapeHtml(value)}" ${value === selectedRole ? "selected" : ""}>${escapeHtml(label)}</option>
+    `)
+    .join("");
+}
+
+function renderUsers() {
+  const users = state.users || [];
+  const canManage = state.currentRole === "admin";
+  $("#userRows").innerHTML = users.length
+    ? users
+        .map((user) => `
+          <tr>
+            <td><strong>${escapeHtml(user.name)}</strong><br><span class="muted">${escapeHtml(user.username)}｜${escapeHtml(user.id)}</span></td>
+            <td>${escapeHtml(user.department || "")}<br><span class="muted">${escapeHtml(user.site || "")}</span></td>
+            <td><span class="role-badge">${escapeHtml(roleText[user.role] || user.role)}</span></td>
+            <td>
+              <div class="button-row">
+                <select data-user-role-select data-user-id="${escapeHtml(user.id)}" ${canManage ? "" : "disabled"}>
+                  ${roleOptions(user.role)}
+                </select>
+                <button class="primary-button compact-button" type="button" data-action="update-user-role" data-user-id="${escapeHtml(user.id)}" ${canManage ? "" : "disabled"}>更新</button>
+              </div>
+            </td>
+          </tr>
+        `)
+        .join("")
+    : `<tr><td colspan="4" class="empty-state">尚無使用者資料</td></tr>`;
+}
+
+function renderAccountSummary() {
+  const user = authState.user || {};
+  $("#accountSummary").innerHTML = `
+    <article class="stack-card">
+      <div class="stack-card-header">
+        <div>
+          <h3>${escapeHtml(user.name || "未登入")}</h3>
+          <p>${escapeHtml(user.username || "")}｜${escapeHtml(user.id || "")}</p>
+        </div>
+        <span class="role-badge">${escapeHtml(roleText[user.role] || user.role || "")}</span>
+      </div>
+      <ul class="detail-list">
+        <li><strong>部門：</strong>${escapeHtml(user.department || "")}</li>
+        <li><strong>Site：</strong>${escapeHtml(user.site || "")}</li>
+      </ul>
+    </article>
+  `;
+}
+
 function renderReports() {
   const results = state.results || [];
   const equipment = state.equipment || [];
@@ -934,14 +1075,13 @@ function renderReports() {
     : `<div class="empty-state">完成下貨後會自動產生結果資料</div>`;
 
   // Utilization chart
-  $("#utilizationChart").innerHTML = equipment
-    .map((machine) => {
-      const rawUtil = Number(machine.utilization);
-      const cleanUtil = isNaN(rawUtil) ? 0 : Math.max(0, Math.min(100, Math.round(rawUtil)));
+  $("#utilizationChart").innerHTML = equipmentTypeSummary()
+    .map((row) => {
+      const cleanUtil = Math.max(0, Math.min(100, Math.round(Number(row.utilization) || 0)));
       return `
       <div class="chart-item">
         <div class="chart-label">
-          <span>${escapeHtml(machine.name)}</span>
+          <span>${escapeHtml(row.type)}｜運作中 ${row.running}/${row.count}</span>
           <span>${cleanUtil}%</span>
         </div>
         <div class="chart-track"><div class="chart-bar" style="width: ${cleanUtil}%"></div></div>
@@ -1012,6 +1152,8 @@ function renderAll() {
   renderJobs();
   renderEquipment();
   renderMachineEventOptions();
+  renderUsers();
+  renderAccountSummary();
   renderReports();
 }
 
@@ -1164,8 +1306,13 @@ async function createDispatchJob(form) {
   }
   const request = requestById(requestId);
   const target = dispatchableItemsForRequest(request).find((item) => item.id === wipId);
+  const machine = (state.equipment || []).find((item) => item.id === equipmentId);
   if (!target) {
     showToast(`WIP ${wipId || ""} 目前不可派貨`);
+    return;
+  }
+  if (!machine || machine.status !== "idle") {
+    showToast("只能派貨到閒置機台");
     return;
   }
 
@@ -1183,6 +1330,8 @@ async function createDispatchJob(form) {
     history: [{ action: "dispatch", actor: roleText[state.currentRole], occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "派貨" }]
   };
   state.jobs.unshift(job);
+  machine.status = "running";
+  refreshLocalEquipmentUtilization();
 
   if (request) {
     request.status = "in_progress";
@@ -1209,7 +1358,7 @@ function completeJobLocally(job, actor, historyAction, historyNote, auditNote) {
   const machine = state.equipment.find((item) => item.id === job.equipmentId);
   if (machine) {
     machine.status = "idle";
-    machine.utilization = Math.min(99, Number(machine.utilization || 0) + 5);
+    refreshLocalEquipmentUtilization();
   }
 
   const request = requestById(job.requestId);
@@ -1250,8 +1399,8 @@ async function loadJob(id) {
   job.history.push({ action: "load", actor: currentActorName(), occurredAt: new Date().toLocaleString("zh-TW", { hour12: false }), note: "上貨" });
   const machine = state.equipment.find((item) => item.id === job.equipmentId);
   if (machine) {
-    machine.status = "busy";
-    machine.utilization = Math.min(96, machine.utilization + 8);
+    machine.status = "running";
+    refreshLocalEquipmentUtilization();
   }
   const request = requestById(job.requestId);
   request && [...request.wips, ...request.samples].forEach((item) => {
@@ -1288,6 +1437,10 @@ async function changeMachineStatus(id, status) {
 
   const machine = state.equipment.find((item) => item.id === id);
   if (!machine) return;
+  if (status === "idle" && machine.status === "running") {
+    showToast("運作中的機台不可手動設為閒置");
+    return;
+  }
   machine.status = status;
   if (status === "alarm") {
     const alarmId = `ALM-${String(state.alarmSeq).padStart(3, "0")}`;
@@ -1300,6 +1453,7 @@ async function changeMachineStatus(id, status) {
       status: "alarm"
     });
   }
+  refreshLocalEquipmentUtilization();
   addAudit(`${machine.name} 狀態更新為 ${statusText[status]}`);
   showToast(`${machine.name} 已更新`);
   renderAll();
@@ -1325,6 +1479,172 @@ async function createRecipe(form) {
   addAudit(`${id} Recipe 已建立`);
   showToast(`${id} 已新增`);
   renderAll();
+}
+
+function applyEquipmentTypesLocally(types) {
+  const previousByType = new Map();
+  (state.equipment || []).forEach((machine) => {
+    const type = machineType(machine);
+    if (!previousByType.has(type)) previousByType.set(type, []);
+    previousByType.get(type).push(machine);
+  });
+  const nextEquipment = [];
+  types.forEach((row) => {
+    const type = String(row.type || "").trim().toUpperCase();
+    const count = Math.max(1, Number(row.count) || 1);
+    const existing = previousByType.get(type) || [];
+    for (let index = 0; index < count; index += 1) {
+      const current = existing[index];
+      nextEquipment.push(current ? {
+        ...current,
+        type,
+        area: row.area || current.area || "",
+        capability: row.capability || current.capability || type,
+        status: current.status === "busy" ? "running" : current.status
+      } : {
+        id: `EQ-${type}-${String(index + 1).padStart(2, "0")}`,
+        type,
+        name: `${type}-${String(index + 1).padStart(2, "0")}`,
+        area: row.area || "",
+        capability: row.capability || type,
+        status: "idle",
+        utilization: 0
+      });
+    }
+  });
+  state.equipment = nextEquipment;
+  refreshLocalEquipmentUtilization();
+}
+
+async function configureEquipmentTypes(form) {
+  const types = readEquipmentTypeRows()
+    .filter((row) => row.type)
+    .map((row) => ({
+      type: row.type,
+      count: row.count,
+      area: row.area,
+      capability: row.capability
+    }));
+  if (!types.length) {
+    showToast("至少需要一種機台");
+    return;
+  }
+
+  if (await apiClient.action("/api/equipment/types", {
+    method: "PUT",
+    body: JSON.stringify(actorPayload({ types }))
+  })) {
+    uiState.equipmentTypeRows = [];
+    return;
+  }
+
+  applyEquipmentTypesLocally(types);
+  uiState.equipmentTypeRows = [];
+  addAudit("機台種類與台數已更新");
+  showToast("機台配置已更新");
+  renderAll();
+}
+
+async function createUser(form) {
+  const payload = actorPayload(formToObject(form));
+  if (!apiClient.available) {
+    const id = `USR-${String((state.users || []).length + 1).padStart(3, "0")}`;
+    state.users = state.users || [];
+    state.users.push({
+      id,
+      username: payload.username,
+      name: payload.name,
+      role: payload.role,
+      department: payload.department || "",
+      site: payload.site || ""
+    });
+    addAudit(`${payload.username} 帳號已建立`);
+    showToast(`${payload.username} 已建立，預設密碼 password123`);
+    form.reset();
+    renderAll();
+    return;
+  }
+
+  try {
+    const result = await apiClient.request("/api/users", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    if (result.users) state.users = result.users;
+    showToast(`${result.user.username} 已建立，預設密碼 ${result.defaultPassword}`);
+    form.reset();
+    renderAll();
+  } catch (error) {
+    console.error(error);
+    if (error.status === 401) {
+      clearSession();
+      showLogin();
+    }
+    showToast(error.message || "新增帳號失敗");
+  }
+}
+
+async function updateUserRole(userId) {
+  const select = $$("[data-user-role-select]").find((element) => element.dataset.userId === userId);
+  const role = select?.value;
+  if (!userId || !role) return;
+
+  if (!apiClient.available) {
+    const user = state.users.find((item) => item.id === userId);
+    if (user) {
+      user.role = role;
+      addAudit(`${user.username} 角色更新為 ${roleText[role] || role}`);
+      showToast(`${user.username} 角色已更新`);
+      renderAll();
+    }
+    return;
+  }
+
+  try {
+    const payload = await apiClient.request(`/api/users/${encodeURIComponent(userId)}/role`, {
+      method: "PATCH",
+      body: JSON.stringify(actorPayload({ role }))
+    });
+    if (payload.users) {
+      state.users = payload.users;
+      if (authState.user?.id === userId) {
+        const currentUser = payload.users.find((user) => user.id === userId);
+        if (currentUser) setSession(authState.token, currentUser);
+      }
+    }
+    showToast(payload.message || "使用者角色已更新");
+    renderAll();
+  } catch (error) {
+    console.error(error);
+    if (error.status === 401) {
+      clearSession();
+      showLogin();
+    }
+    showToast(error.message || "使用者角色更新失敗");
+  }
+}
+
+async function changeOwnPassword(form) {
+  if (!apiClient.available) {
+    showToast("更換密碼需要連線到後端 API");
+    return;
+  }
+
+  try {
+    const result = await apiClient.request("/api/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify(formToObject(form))
+    });
+    form.reset();
+    showToast(result.message || "密碼已更新");
+  } catch (error) {
+    console.error(error);
+    if (error.status === 401) {
+      showToast(error.message || "目前密碼錯誤");
+      return;
+    }
+    showToast(error.message || "密碼更新失敗");
+  }
 }
 
 async function closeRequest(id) {
@@ -1356,6 +1676,7 @@ async function acknowledgeAlarm(id) {
   const machine = state.equipment.find((item) => item.id === alarm.equipmentId);
   if (machine && machine.status === "alarm") {
     machine.status = "maintenance";
+    refreshLocalEquipmentUtilization();
   }
   addAudit(`${id} 已確認處理`);
   showToast(`${id} 已確認`);
@@ -1432,6 +1753,7 @@ function applyMachineEventFallback(event) {
 
   if (event.eventType === "alarm") {
     machine.status = "alarm";
+    refreshLocalEquipmentUtilization();
     const alarmId = `ALM-${String(state.alarmSeq).padStart(3, "0")}`;
     state.alarmSeq += 1;
     state.alarms.unshift({
@@ -1524,7 +1846,18 @@ document.addEventListener("click", (event) => {
   const actionButton = event.target.closest("[data-action]");
   if (!actionButton) return;
 
-  const { action, requestId, jobId, equipmentId, status, alarmId, recipeId, splitIndex } = actionButton.dataset;
+  const {
+    action,
+    requestId,
+    jobId,
+    equipmentId,
+    status,
+    alarmId,
+    recipeId,
+    splitIndex,
+    equipmentTypeIndex,
+    userId
+  } = actionButton.dataset;
   if (action === "approve") approveRequest(requestId);
   if (action === "reject") rejectRequest(requestId);
   if (action === "receive") receiveRequest(requestId);
@@ -1540,12 +1873,17 @@ document.addEventListener("click", (event) => {
     if (!uiState.splitRows.length) uiState.splitRows = [{ quantity: 1, purpose: "" }];
     renderSplitForm();
   }
+  if (action === "remove-equipment-type-row") {
+    uiState.equipmentTypeRows = readEquipmentTypeRows().filter((_row, index) => index !== Number(equipmentTypeIndex));
+    renderEquipmentTypeForm();
+  }
   if (action === "load") loadJob(jobId);
   if (action === "unload") unloadJob(jobId);
   if (action === "machine-status") changeMachineStatus(equipmentId, status);
   if (action === "close-request") closeRequest(requestId);
   if (action === "ack-alarm") acknowledgeAlarm(alarmId);
   if (action === "deactivate-recipe") deactivateRecipe(recipeId);
+  if (action === "update-user-role") updateUserRole(userId);
 });
 
 $("#requestForm").addEventListener("submit", (event) => {
@@ -1583,6 +1921,21 @@ $("#machineEventForm").addEventListener("submit", (event) => {
   processMachineEvent(event.currentTarget);
 });
 
+$("#equipmentTypeForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  configureEquipmentTypes(event.currentTarget);
+});
+
+$("#userForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  createUser(event.currentTarget);
+});
+
+$("#passwordForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  changeOwnPassword(event.currentTarget);
+});
+
 async function deactivateRecipe(id) {
   if (await apiClient.action(`/api/recipes/${encodeURIComponent(id)}/deactivate`, {
     method: "POST",
@@ -1609,6 +1962,11 @@ $("#addSplitRowButton").addEventListener("click", () => {
   uiState.splitRows.push({ quantity: 1, purpose: "" });
   renderSplitForm();
 });
+$("#addEquipmentTypeButton").addEventListener("click", () => {
+  uiState.equipmentTypeRows = readEquipmentTypeRows();
+  uiState.equipmentTypeRows.push({ type: "", count: 1, area: "", capability: "" });
+  renderEquipmentTypeForm();
+});
 $("#machineEventEquipment").addEventListener("change", (event) => {
   uiState.machineEventEquipmentId = event.target.value;
   renderMachineEventOptions();
@@ -1625,7 +1983,8 @@ if (typeof module !== "undefined") {
   module.exports = {
     escapeHtml, statusPill, priorityPill, auditMessage, auditTime, equipmentName, recipeName, state, statusText,
     roleAllows, sectionAllowed, normalizeSplitRows, machineEventPayloadFromFields, dispatchableItemsForRequest,
+    machineType, equipmentTypeSummary, refreshLocalEquipmentUtilization,
     renderDashboardStatusChart, renderDashboardUtilization, renderDashboardTimeline,
-    renderReports, renderRequestTables, renderMachineSummary, renderEquipment
+    renderReports, renderRequestTables, renderMachineSummary, renderEquipment, renderUsers, renderAccountSummary
   };
 }

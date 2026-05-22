@@ -8,7 +8,9 @@ from ..domain import (
     equipment_name,
     job_by_id,
     machine_by_id,
+    machine_type,
     now_text,
+    refresh_equipment_utilization,
     recipe_by_id,
     recipe_name,
     request_by_id,
@@ -42,7 +44,7 @@ def complete_job_in_state(
     )
     if machine:
         machine["status"] = "idle"
-        machine["utilization"] = min(99, int(machine.get("utilization", 0)) + 5)
+        refresh_equipment_utilization(state)
     if current_request:
         current_request["status"] = "closed"
         current_request["closedAt"] = completed_at
@@ -137,9 +139,11 @@ def create_job(
             for job in state["jobs"]
         ):
             raise ApiError(f"WIP {wip_id} already has an active job", 409)
-        if machine["status"] in ["maintenance", "alarm"]:
+        if machine.get("status") == "busy":
+            machine["status"] = "running"
+        if machine["status"] != "idle":
             raise ApiError("Equipment is not dispatchable", 409)
-        if recipe.get("equipmentId") != machine["id"]:
+        if recipe.get("equipmentId") != machine["id"] and recipe.get("equipmentType") != machine_type(machine):
             raise ApiError("Recipe does not belong to selected equipment", 409)
         if recipe.get("active") is False:
             raise ApiError("Recipe is inactive", 409)
@@ -158,6 +162,8 @@ def create_job(
             "history": [{"action": "dispatch", "actor": operator, "occurredAt": now_text(), "note": "Dispatched"}],
         }
         state["jobs"].insert(0, job)
+        machine["status"] = "running"
+        refresh_equipment_utilization(state)
         current_request["status"] = "in_progress"
         set_item_status(current_request, wip_id, "dispatched")
         add_audit(
@@ -190,14 +196,16 @@ def load_job(store: Any, *, job_id: str, actor: str) -> dict[str, Any]:
         current_request = request_by_id(state, job["requestId"])
         machine = machine_by_id(state, job["equipmentId"])
         effective_actor = actor or job.get("operator") or "Lab Operator"
+        if machine and machine.get("status") != "running":
+            raise ApiError("Equipment is not ready to load", 409)
 
         job["status"] = "running"
         job.setdefault("history", []).append(
             {"action": "load", "actor": effective_actor, "occurredAt": now_text(), "note": "Loaded"}
         )
         if machine:
-            machine["status"] = "busy"
-            machine["utilization"] = min(96, int(machine.get("utilization", 0)) + 8)
+            machine["status"] = "running"
+            refresh_equipment_utilization(state)
         if current_request:
             current_request["status"] = "in_progress"
             set_item_status(current_request, job["wipId"], "loaded")

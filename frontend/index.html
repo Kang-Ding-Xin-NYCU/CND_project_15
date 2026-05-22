@@ -15,12 +15,13 @@
         </div>
         <label>
           帳號
-          <select name="username" required>
+          <input name="username" type="text" value="fab" list="demoUsers" required>
+          <datalist id="demoUsers">
             <option value="fab">廠區使用者 fab</option>
             <option value="supervisor">實驗室主管 supervisor</option>
             <option value="operator">實驗室人員 operator</option>
             <option value="admin">系統管理員 admin</option>
-          </select>
+          </datalist>
         </label>
         <label>
           密碼
@@ -47,6 +48,8 @@
           <button class="nav-item" type="button" data-section="approval">簽核中心</button>
           <button class="nav-item" type="button" data-section="lab">收件與派貨</button>
           <button class="nav-item" type="button" data-section="equipment">機台與 Recipe</button>
+          <button class="nav-item" type="button" data-section="users">使用者管理</button>
+          <button class="nav-item" type="button" data-section="account">帳號設定</button>
           <button class="nav-item" type="button" data-section="reports">結果與統計</button>
         </nav>
 
@@ -335,6 +338,20 @@
 
         <section id="equipment" class="view">
           <div class="dashboard-grid">
+            <form id="equipmentTypeForm" class="panel form-panel" data-role-visible="supervisor,admin">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Capacity</p>
+                  <h2>機台種類與台數</h2>
+                </div>
+              </div>
+              <div id="equipmentTypeRows" class="split-row-list"></div>
+              <div class="button-row">
+                <button id="addEquipmentTypeButton" class="ghost-button compact-button" type="button">+ 新增種類</button>
+                <button class="primary-button" type="submit">儲存配置</button>
+              </div>
+            </form>
+
             <div class="panel">
               <div class="panel-heading">
                 <div>
@@ -444,6 +461,104 @@
                 </thead>
                 <tbody id="recipeRows"></tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="users" class="view">
+          <div class="split-layout">
+            <form id="userForm" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Account</p>
+                  <h2>新增帳號</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label>
+                  帳號
+                  <input name="username" type="text" value="newuser" required>
+                </label>
+                <label>
+                  姓名
+                  <input name="name" type="text" value="New User" required>
+                </label>
+                <label>
+                  身分
+                  <select name="role" required>
+                    <option value="fab">廠區使用者</option>
+                    <option value="supervisor">實驗室主管</option>
+                    <option value="operator">實驗室人員</option>
+                    <option value="admin">系統管理員</option>
+                  </select>
+                </label>
+                <label>
+                  部門
+                  <input name="department" type="text" value="Fab Demo">
+                </label>
+                <label class="wide-field">
+                  Site
+                  <input name="site" type="text" value="Fab 12">
+                </label>
+              </div>
+              <p class="form-note">新帳號預設密碼為 password123，使用者登入後可自行更換。</p>
+              <button class="primary-button" type="submit">+ 新增帳號</button>
+            </form>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Access Control</p>
+                  <h2>使用者角色管理</h2>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>使用者</th>
+                      <th>部門 / Site</th>
+                      <th>目前角色</th>
+                      <th>指派角色</th>
+                    </tr>
+                  </thead>
+                  <tbody id="userRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="account" class="view">
+          <div class="dashboard-grid">
+            <form id="passwordForm" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Password</p>
+                  <h2>更換密碼</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label class="wide-field">
+                  目前密碼
+                  <input name="currentPassword" type="password" autocomplete="current-password" required>
+                </label>
+                <label class="wide-field">
+                  新密碼
+                  <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">更新密碼</button>
+            </form>
+
+            <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Profile</p>
+                <h2>目前登入帳號</h2>
+              </div>
+            </div>
+              <div id="accountSummary" class="stack-list"></div>
             </div>
           </div>
         </section>

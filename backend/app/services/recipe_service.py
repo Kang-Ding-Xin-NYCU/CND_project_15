@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..domain import add_audit, machine_by_id, recipe_by_id
+from ..domain import add_audit, machine_by_id, machine_type, recipe_by_id
 from ..errors import ApiError
 
 
@@ -14,7 +14,8 @@ def create_recipe(
     actor: str,
 ) -> dict[str, Any]:
     def mutate(state: dict[str, Any]) -> dict[str, Any]:
-        if not machine_by_id(state, equipment_id):
+        machine = machine_by_id(state, equipment_id)
+        if not machine:
             raise ApiError("Equipment not found", 404)
         recipe_id = f"RCP-{state['recipeSeq']:03d}"
         state["recipeSeq"] += 1
@@ -23,6 +24,7 @@ def create_recipe(
             {
                 "id": recipe_id,
                 "equipmentId": equipment_id,
+                "equipmentType": machine_type(machine),
                 "name": name,
                 "version": version,
                 "parameters": parameters,

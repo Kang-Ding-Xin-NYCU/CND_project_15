@@ -11,6 +11,7 @@ from .errors import ApiError
 
 TOKEN_TTL_SECONDS = 60 * 60 * 8
 ADMIN_ROLE = "admin"
+VALID_ROLES = ("fab", "supervisor", "operator", ADMIN_ROLE)
 
 
 def _base64_url_encode(raw: bytes) -> str:

@@ -1,6 +1,6 @@
 from typing import Any
 
-from ..domain import add_audit, machine_by_id, now_text
+from ..domain import add_audit, machine_by_id, now_text, refresh_equipment_utilization
 from ..errors import ApiError
 
 
@@ -26,6 +26,7 @@ def create_alarm_in_state(
     source: str,
 ) -> dict[str, Any]:
     machine["status"] = "alarm"
+    refresh_equipment_utilization(state)
     alarm_id = f"ALM-{state['alarmSeq']:03d}"
     state["alarmSeq"] += 1
     alarm = {
@@ -87,6 +88,7 @@ def acknowledge(store: Any, *, alarm_id: str, actor: str) -> dict[str, Any]:
         machine = machine_by_id(state, alarm["equipmentId"])
         if machine and machine["status"] == "alarm":
             machine["status"] = "maintenance"
+            refresh_equipment_utilization(state)
         add_audit(state, f"{alarm['id']} acknowledged", alarm["acknowledgedBy"])
         return {"message": f"{alarm['id']} acknowledged"}
 
