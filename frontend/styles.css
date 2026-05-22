@@ -451,6 +451,25 @@ textarea {
   color: #ffffff;
 }
 
+.primary-button:disabled,
+.ghost-button:disabled,
+.danger-button:disabled,
+.success-button:disabled,
+.warning-button:disabled {
+  background: #d4d4d4;
+  color: #888;
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+.primary-button:disabled:hover,
+.ghost-button:disabled:hover,
+.danger-button:disabled:hover,
+.success-button:disabled:hover,
+.warning-button:disabled:hover {
+  background: #d4d4d4;
+}
+
 .button-row {
   display: flex;
   flex-wrap: wrap;
@@ -622,6 +641,30 @@ textarea {
   color: var(--muted);
   text-align: center;
   padding: 20px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.pagination-info {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pagination button[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.split-summary-error {
+  color: var(--danger, #c00);
+  font-weight: 600;
 }
 
 .recipe-deactivated td {

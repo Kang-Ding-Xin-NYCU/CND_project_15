@@ -143,12 +143,15 @@ const sectionRoles = {
   reports: ["fab", "supervisor", "operator", "admin"]
 };
 
+const RESULTS_PER_PAGE = 5;
+
 const uiState = {
   splitRows: [{ quantity: 1, purpose: "" }],
   splitRequestId: "",
   equipmentTypeRows: [],
   machineEventEquipmentId: "",
-  machineEventType: "completed"
+  machineEventType: "completed",
+  resultsPage: 1
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -759,8 +762,6 @@ function renderSplitForm() {
     uiState.splitRows = [{ quantity: source?.quantity || 1, purpose: `${selectedRequest.labType} split` }];
   }
 
-  const total = uiState.splitRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
-  $("#splitSummary").textContent = `${source.id}｜${source.material}｜樣品數量 ${source.quantity}｜已配置 ${total}`;
   $("#splitRows").innerHTML = uiState.splitRows
     .map((row, index) => `
       <div class="split-row" data-split-index="${index}">
@@ -776,6 +777,19 @@ function renderSplitForm() {
       </div>
     `)
     .join("");
+  updateSplitSummary(source, selectedRequest);
+}
+
+function updateSplitSummary(source, selectedRequest) {
+  if (!source || !selectedRequest) return;
+  const total = readSplitRows().reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+  const matches = total === Number(source.quantity);
+  $("#splitSummary").textContent =
+    `${source.id}｜${source.material}｜樣品數量 ${source.quantity}｜已配置 ${total}` +
+    (matches ? "（✓ 可建立）" : "（總量需等於樣品數量才可建立）");
+  $("#splitSummary").classList.toggle("split-summary-error", !matches);
+  const submitButton = $("#manualSplitForm").querySelector?.('button[type="submit"]');
+  if (submitButton) submitButton.disabled = !matches;
 }
 
 function renderDispatchOptions() {
@@ -1041,9 +1055,16 @@ function renderReports() {
        </div>`
     : "";
 
+  // Clamp page within bounds and slice for current page
+  const totalPages = Math.max(1, Math.ceil(results.length / RESULTS_PER_PAGE));
+  if (uiState.resultsPage > totalPages) uiState.resultsPage = totalPages;
+  if (uiState.resultsPage < 1) uiState.resultsPage = 1;
+  const pageStart = (uiState.resultsPage - 1) * RESULTS_PER_PAGE;
+  const pageResults = results.slice(pageStart, pageStart + RESULTS_PER_PAGE);
+
   // Result cards — enhanced with metadata
   $("#resultList").innerHTML = results.length
-    ? results
+    ? pageResults
         .map((result) => {
           const request = requestById(result.requestId);
           const job = result.jobId ? jobById(result.jobId) : null;
@@ -1073,6 +1094,15 @@ function renderReports() {
         })
         .join("")
     : `<div class="empty-state">完成下貨後會自動產生結果資料</div>`;
+
+  // Pagination control (only when more than one page)
+  $("#resultPagination").innerHTML = results.length > RESULTS_PER_PAGE
+    ? `<div class="pagination">
+         <button class="ghost-button compact-button" type="button" data-action="prev-result-page" ${uiState.resultsPage <= 1 ? "disabled" : ""}>← 上一頁</button>
+         <span class="pagination-info">第 ${uiState.resultsPage} / ${totalPages} 頁（共 ${results.length} 筆）</span>
+         <button class="ghost-button compact-button" type="button" data-action="next-result-page" ${uiState.resultsPage >= totalPages ? "disabled" : ""}>下一頁 →</button>
+       </div>`
+    : "";
 
   // Utilization chart
   $("#utilizationChart").innerHTML = equipmentTypeSummary()
@@ -1883,7 +1913,25 @@ document.addEventListener("click", (event) => {
   if (action === "close-request") closeRequest(requestId);
   if (action === "ack-alarm") acknowledgeAlarm(alarmId);
   if (action === "deactivate-recipe") deactivateRecipe(recipeId);
+  if (action === "prev-result-page") {
+    if (uiState.resultsPage > 1) {
+      uiState.resultsPage -= 1;
+      renderReports();
+    }
+  }
+  if (action === "next-result-page") {
+    uiState.resultsPage += 1;
+    renderReports();
+  }
   if (action === "update-user-role") updateUserRole(userId);
+});
+
+$("#splitRows").addEventListener("input", (event) => {
+  if (!(event.target instanceof HTMLInputElement)) return;
+  if (event.target.name !== "quantity") return;
+  const selectedRequest = requestById(uiState.splitRequestId);
+  const source = selectedRequest?.samples?.[0];
+  updateSplitSummary(source, selectedRequest);
 });
 
 $("#requestForm").addEventListener("submit", (event) => {

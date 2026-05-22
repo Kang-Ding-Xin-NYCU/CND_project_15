@@ -680,19 +680,26 @@ async def test_manual_split_creates_n_wips_with_quantities(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_split_rejects_total_quantity_over_sample(tmp_path):
+async def test_split_rejects_quantity_mismatch(tmp_path):
     transport = httpx.ASGITransport(app=make_app(tmp_path))
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         request_id, operator_token = await _prepare_received_request(client, sample_code="SMP-T-300", quantity=4)
 
-        response = await client.post(
+        over = await client.post(
             f"/api/requests/{request_id}/split",
             headers={"Authorization": f"Bearer {operator_token}"},
             json={"wips": [{"quantity": 3, "purpose": "x"}, {"quantity": 3, "purpose": "y"}]},
         )
+        assert over.status_code == 400
+        assert "must equal sample quantity" in over.json()["error"]
 
-        assert response.status_code == 400
-        assert "exceeds sample quantity" in response.json()["error"]
+        under = await client.post(
+            f"/api/requests/{request_id}/split",
+            headers={"Authorization": f"Bearer {operator_token}"},
+            json={"wips": [{"quantity": 1, "purpose": "leaves remainder"}]},
+        )
+        assert under.status_code == 400
+        assert "must equal sample quantity" in under.json()["error"]
 
 
 @pytest.mark.anyio

@@ -136,9 +136,9 @@ def split(store: Any, *, request_id: str, actor: str, wips: list[dict[str, Any]]
 
         sample_qty = int(source.get("quantity") or 0)
         total_qty = sum(quantities)
-        if total_qty > sample_qty:
+        if total_qty != sample_qty:
             raise ApiError(
-                f"Total WIP quantity {total_qty} exceeds sample quantity {sample_qty}",
+                f"Total WIP quantity {total_qty} must equal sample quantity {sample_qty}",
                 400,
             )
 
