@@ -91,7 +91,14 @@ def complete_job_in_state(
                 "createdAt": completed_at,
             },
         )
-    add_audit(state, f"{job['id']} completed and result captured", effective_actor)
+    add_audit(
+        state,
+        f"{job['id']} completed and result captured",
+        effective_actor,
+        action=f"job.{history_action}",
+        target_type="job",
+        target_id=job["id"],
+    )
 
 
 def create_job(
@@ -111,8 +118,25 @@ def create_job(
         if not current_request or not machine or not recipe:
             raise ApiError("Request, equipment, or recipe not found", 404)
         assert_request_status(current_request, ("received", "split"), "dispatch")
-        if not any(item["id"] == wip_id for item in dispatchable_items(current_request)):
+        target_wip = next(
+            (item for item in dispatchable_items(current_request) if item["id"] == wip_id),
+            None,
+        )
+        if not target_wip:
             raise ApiError("Selected WIP/sample does not belong to request", 409)
+        if target_wip.get("status") != "queued":
+            raise ApiError(
+                f"WIP {wip_id} is not dispatchable (status: {target_wip.get('status')})",
+                409,
+            )
+        active_job_statuses = {"queued", "running", "loaded"}
+        if any(
+            job["requestId"] == current_request["id"]
+            and job["wipId"] == wip_id
+            and job.get("status") in active_job_statuses
+            for job in state["jobs"]
+        ):
+            raise ApiError(f"WIP {wip_id} already has an active job", 409)
         if machine["status"] in ["maintenance", "alarm"]:
             raise ApiError("Equipment is not dispatchable", 409)
         if recipe.get("equipmentId") != machine["id"]:
@@ -135,8 +159,15 @@ def create_job(
         }
         state["jobs"].insert(0, job)
         current_request["status"] = "in_progress"
-        set_item_status(current_request, wip_id, "queued")
-        add_audit(state, f"{current_request['id']} dispatched as {job_id} on {machine['name']}", operator)
+        set_item_status(current_request, wip_id, "dispatched")
+        add_audit(
+            state,
+            f"{current_request['id']} dispatched as {job_id} on {machine['name']}",
+            operator,
+            action="job.dispatch",
+            target_type="job",
+            target_id=job_id,
+        )
         return {"message": f"{job_id} dispatched"}
 
     return store.update(mutate)
@@ -170,7 +201,14 @@ def load_job(store: Any, *, job_id: str, actor: str) -> dict[str, Any]:
         if current_request:
             current_request["status"] = "in_progress"
             set_item_status(current_request, job["wipId"], "loaded")
-        add_audit(state, f"{job['id']} loaded", effective_actor)
+        add_audit(
+            state,
+            f"{job['id']} loaded",
+            effective_actor,
+            action="job.load",
+            target_type="job",
+            target_id=job["id"],
+        )
         return {"message": f"{job['id']} loaded"}
 
     return store.update(mutate)
