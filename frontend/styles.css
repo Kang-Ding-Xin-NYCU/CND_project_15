@@ -296,6 +296,11 @@ h3 {
   align-items: start;
 }
 
+.workflow-column {
+  display: grid;
+  gap: 18px;
+}
+
 .panel {
   min-width: 0;
   padding: 18px;
@@ -453,6 +458,33 @@ textarea {
   margin-top: 10px;
 }
 
+.form-note {
+  min-height: 24px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.split-row-list {
+  display: grid;
+  gap: 10px;
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: minmax(82px, 0.35fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+
+.compact-empty {
+  min-height: 74px;
+}
+
 .stack-list,
 .timeline,
 .job-grid,
@@ -554,7 +586,8 @@ textarea {
 .status-in_progress,
 .status-running,
 .status-busy,
-.status-loaded {
+.status-loaded,
+.status-dispatched {
   background: #eff6ff;
   color: var(--blue);
 }
@@ -591,6 +624,174 @@ textarea {
   padding: 20px;
 }
 
+.recipe-deactivated td {
+  opacity: 0.6;
+}
+
+.recipe-deactivated strong {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/* Dashboard triple grid */
+.dashboard-triple-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+/* Status distribution stacked bar */
+.status-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-bar-container {
+  display: flex;
+  height: 28px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+
+.status-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  transition: width 0.4s ease;
+}
+
+.status-bar-segment.seg-pending_approval { background: var(--amber); }
+.status-bar-segment.seg-approved { background: var(--green); }
+.status-bar-segment.seg-received { background: #38a169; }
+.status-bar-segment.seg-split { background: var(--violet); }
+.status-bar-segment.seg-in_progress { background: var(--blue); }
+.status-bar-segment.seg-completed,
+.status-bar-segment.seg-closed { background: var(--teal); }
+.status-bar-segment.seg-rejected { background: var(--red); }
+
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Dashboard mini timeline */
+.mini-timeline {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.mini-timeline-item {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0 6px 12px;
+  border-left: 3px solid var(--teal);
+  font-size: 13px;
+}
+
+.mini-timeline-item .mini-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Severity pills */
+.severity-pill {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.severity-Critical { background: #fff1f0; color: var(--red); }
+.severity-High { background: #fff7ed; color: var(--amber); }
+.severity-Medium { background: #eff6ff; color: var(--blue); }
+.severity-Low { background: #eef4f2; color: var(--teal-dark); }
+
+/* Alarm summary bar */
+.alarm-summary {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.alarm-summary .summary-count {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* Result meta code block */
+.result-meta-code {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #f1f3f5;
+  font-family: "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  color: var(--teal-dark);
+  word-break: break-all;
+}
+
+/* Result stat header */
+.result-stat-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.result-stat-bar .stat-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+h1, h2, h3, p, td {
+  word-break: break-word;
+}
+
 @media (max-width: 1100px) {
   .metric-grid,
   .job-grid {
@@ -600,6 +801,10 @@ textarea {
   .dashboard-grid,
   .split-layout {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-triple-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -640,7 +845,9 @@ textarea {
   .metric-grid,
   .machine-grid,
   .form-grid,
-  .job-grid {
+  .split-row,
+  .job-grid,
+  .dashboard-triple-grid {
     grid-template-columns: 1fr;
   }
 

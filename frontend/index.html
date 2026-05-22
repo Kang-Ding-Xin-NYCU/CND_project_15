@@ -50,9 +50,9 @@
           <button class="nav-item" type="button" data-section="reports">結果與統計</button>
         </nav>
 
-        <label class="role-switcher" for="roleSelect">
+        <label class="role-switcher is-hidden" for="roleSelect">
           <span>目前角色</span>
-          <select id="roleSelect">
+          <select id="roleSelect" disabled>
             <option value="fab">廠區使用者</option>
             <option value="supervisor">實驗室主管</option>
             <option value="operator">實驗室人員</option>
@@ -86,7 +86,7 @@
                   <p class="eyebrow">Operations</p>
                   <h2>近期委託單</h2>
                 </div>
-                <button class="ghost-button" type="button" data-section-jump="requests">新增</button>
+                <button class="ghost-button" type="button" data-section-jump="requests" data-role-visible="fab">新增</button>
               </div>
               <div class="table-wrap">
                 <table>
@@ -111,6 +111,38 @@
                 </div>
               </div>
               <div class="machine-grid" id="machineSummary"></div>
+            </div>
+          </div>
+
+          <div class="dashboard-triple-grid">
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Request Status</p>
+                  <h2>委託單狀態分佈</h2>
+                </div>
+              </div>
+              <div id="dashboardStatusChart" class="status-distribution"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Utilization</p>
+                  <h2>機台利用率</h2>
+                </div>
+              </div>
+              <div id="dashboardUtilization" class="chart-list"></div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Activity</p>
+                  <h2>操作歷程</h2>
+                </div>
+              </div>
+              <div id="dashboardTimeline" class="mini-timeline"></div>
             </div>
           </div>
         </section>
@@ -234,37 +266,60 @@
               <div id="receivingList" class="stack-list"></div>
             </div>
 
-            <form id="dispatchForm" class="panel form-panel">
-              <div class="panel-heading">
-                <div>
-                  <p class="eyebrow">Dispatch</p>
-                  <h2>派貨到機台</h2>
+            <div class="workflow-column">
+              <form id="manualSplitForm" class="panel form-panel" data-role-visible="operator">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Manual Split</p>
+                    <h2>手動 WIP 分貨</h2>
+                  </div>
                 </div>
-              </div>
-              <div class="form-grid">
-                <label>
-                  委託單
-                  <select id="dispatchRequest" name="requestId" required></select>
-                </label>
-                <label>
-                  WIP / 樣品
-                  <select id="dispatchWip" name="wipId" required></select>
-                </label>
-                <label>
-                  機台
-                  <select id="dispatchEquipment" name="equipmentId" required></select>
-                </label>
-                <label>
-                  Recipe
-                  <select id="dispatchRecipe" name="recipeId" required></select>
-                </label>
-                <label class="wide-field">
-                  派貨備註
-                  <textarea name="note" rows="3">依委託單條件安排標準流程。</textarea>
-                </label>
-              </div>
-              <button class="primary-button" type="submit">→ 建立派貨任務</button>
-            </form>
+                <div class="form-grid">
+                  <label class="wide-field">
+                    委託單
+                    <select id="splitRequest" name="requestId" required></select>
+                  </label>
+                </div>
+                <div id="splitSummary" class="form-note"></div>
+                <div id="splitRows" class="split-row-list"></div>
+                <div class="button-row">
+                  <button id="addSplitRowButton" class="ghost-button compact-button" type="button">+ 新增 WIP</button>
+                  <button class="primary-button" type="submit">建立 WIP</button>
+                </div>
+              </form>
+
+              <form id="dispatchForm" class="panel form-panel" data-role-visible="operator">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Dispatch</p>
+                    <h2>派貨到機台</h2>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    委託單
+                    <select id="dispatchRequest" name="requestId" required></select>
+                  </label>
+                  <label>
+                    WIP / 樣品
+                    <select id="dispatchWip" name="wipId" required></select>
+                  </label>
+                  <label>
+                    機台
+                    <select id="dispatchEquipment" name="equipmentId" required></select>
+                  </label>
+                  <label>
+                    Recipe
+                    <select id="dispatchRecipe" name="recipeId" required></select>
+                  </label>
+                  <label class="wide-field">
+                    派貨備註
+                    <textarea name="note" rows="3">依委託單條件安排標準流程。</textarea>
+                  </label>
+                </div>
+                <button class="primary-button" type="submit">→ 建立派貨任務</button>
+              </form>
+            </div>
           </div>
 
           <div class="panel">
@@ -290,33 +345,84 @@
               <div id="equipmentList" class="stack-list"></div>
             </div>
 
-            <form id="recipeForm" class="panel form-panel">
-              <div class="panel-heading">
-                <div>
-                  <p class="eyebrow">Recipe</p>
-                  <h2>新增 Recipe</h2>
+            <div class="workflow-column">
+              <form id="machineEventForm" class="panel form-panel" data-role-visible="operator">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Machine Event</p>
+                    <h2>機台事件模擬</h2>
+                  </div>
                 </div>
-              </div>
-              <div class="form-grid">
-                <label>
-                  適用機台
-                  <select id="recipeEquipment" name="equipmentId" required></select>
-                </label>
-                <label>
-                  Recipe 名稱
-                  <input name="name" type="text" value="Defect Review Fast Scan" required>
-                </label>
-                <label>
-                  版本
-                  <input name="version" type="text" value="1.0.0" required>
-                </label>
-                <label>
-                  關鍵參數
-                  <input name="parameters" type="text" value="voltage=5kV; dwell=20ms" required>
-                </label>
-              </div>
-              <button class="primary-button" type="submit">+ 新增 Recipe</button>
-            </form>
+                <div class="form-grid">
+                  <label>
+                    機台
+                    <select id="machineEventEquipment" name="equipmentId" required></select>
+                  </label>
+                  <label>
+                    事件
+                    <select id="machineEventType" name="eventType" required>
+                      <option value="completed">completed</option>
+                      <option value="alarm">alarm</option>
+                      <option value="measurement">measurement</option>
+                    </select>
+                  </label>
+                  <label class="wide-field">
+                    Job
+                    <select id="machineEventJob" name="jobId"></select>
+                  </label>
+                  <label>
+                    Severity
+                    <select name="severity">
+                      <option value="Medium">Medium</option>
+                      <option value="High">High</option>
+                      <option value="Critical">Critical</option>
+                      <option value="Low">Low</option>
+                    </select>
+                  </label>
+                  <label>
+                    Measurement
+                    <input name="metric" type="text" value="thicknessNm">
+                  </label>
+                  <label>
+                    Value
+                    <input name="value" type="number" step="0.01" value="42.8">
+                  </label>
+                  <label class="wide-field">
+                    Message / Note
+                    <textarea name="message" rows="3">Machine event received from tool telemetry.</textarea>
+                  </label>
+                </div>
+                <button class="primary-button" type="submit">送出事件</button>
+              </form>
+
+              <form id="recipeForm" class="panel form-panel" data-role-visible="admin">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">Recipe</p>
+                    <h2>新增 Recipe</h2>
+                  </div>
+                </div>
+                <div class="form-grid">
+                  <label>
+                    適用機台
+                    <select id="recipeEquipment" name="equipmentId" required></select>
+                  </label>
+                  <label>
+                    Recipe 名稱
+                    <input name="name" type="text" value="Defect Review Fast Scan" required>
+                  </label>
+                  <label>
+                    版本
+                    <input name="version" type="text" value="1.0.0" required>
+                  </label>
+                  <label>
+                    關鍵參數
+                    <input name="parameters" type="text" value="voltage=5kV; dwell=20ms" required>
+                  </label>
+                </div>
+                <button class="primary-button" type="submit">+ 新增 Recipe</button>
+              </form>
+            </div>
           </div>
 
           <div class="panel">
@@ -351,6 +457,7 @@
                   <h2>結果管理</h2>
                 </div>
               </div>
+              <div id="resultStatBar"></div>
               <div id="resultList" class="stack-list"></div>
             </div>
 
@@ -371,8 +478,9 @@
                 <p class="eyebrow">Alarms</p>
                 <h2>異常告警</h2>
               </div>
-              <button id="createAlarmButton" class="ghost-button" type="button">+ 模擬告警</button>
+              <button id="createAlarmButton" class="ghost-button" type="button" data-role-visible="operator">+ 模擬告警</button>
             </div>
+            <div id="alarmSummaryBar"></div>
             <div id="alarmList" class="stack-list"></div>
           </div>
         </section>
