@@ -199,6 +199,7 @@ frontend/
     server.test.js   frontend static server 測試
 
 docker-compose.yml   frontend / backend / mongo / redis
+k8s/                 local Kubernetes manifests for frontend / backend / mongo / redis
 .github/workflows/ci.yml
 ```
 
@@ -319,4 +320,4 @@ Frontend tests：
 | Recipe | 目前只支援新增，尚未支援版本停用與 active recipe 規則 |
 | 機台自動化 | 尚未有 machine event collector API |
 | Observability | 目前只有 health check，尚無 metrics/log format/tracing |
-| Docker/K8s | 有 Docker Compose，尚未有 Docker healthcheck、restart policy、Kubernetes manifests |
+| Docker/K8s | 有 Docker Compose 與本機 Kubernetes manifests；尚未有 production ingress、HA Redis/Mongo、metrics/tracing |
