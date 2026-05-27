@@ -4,6 +4,7 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
+    "build:frontend:static": "node scripts/write-frontend-config.js",
     "start:backend": "cd backend && ../.venv/bin/python -m app.main",
     "start:frontend": "HTTPS=true PORT=8080 API_BASE_URL=https://localhost:3443 TLS_KEY_FILE=certs/localhost-key.pem TLS_CERT_FILE=certs/localhost-cert.pem node frontend/server.js",
     "test": "npm run test:backend && npm run test:frontend",
